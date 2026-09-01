@@ -11,11 +11,12 @@ interface Props {
 const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'buyItem', item: Item, slotIndex: number): void;
-  (e: 'convertVespene', count: number): void;
+  (e: 'convertMaxVespene'): void;
   (e: 'close'): void;
 }>();
 
 const activeTab = ref<ItemCategory>('blades');
+const maxPossibleV = computed(() => Math.floor(props.minerals / 64000));
 
 const tabs: { key: ItemCategory; label: string }[] = [
   { key: 'blades', label: '⚔️ Blades' },
@@ -23,6 +24,7 @@ const tabs: { key: ItemCategory; label: string }[] = [
   { key: 'armor', label: '🛡️ Armor' },
   { key: 'amulet', label: '📿 Amulets' },
   { key: 'trinket', label: '🧪 Potions' },
+  { key: 'final', label: '✨ Final Items' },
 ];
 
 const filteredItems = computed(() => {
@@ -66,25 +68,17 @@ function canAfford(item: Item, minerals: number, vespene: number): boolean {
       <!-- Vespene Gas Exchange Section -->
       <div class="bg-gray-950 border border-green-900/60 rounded-lg p-3 mb-4 flex justify-between items-center">
         <div>
-          <div class="text-xs font-bold text-green-400">Vespene Gas Exchange</div>
+          <div class="text-xs font-bold text-green-400">Max Vespene Gas Exchange</div>
           <div class="text-[10px] text-gray-400">Cost: 64,000 Minerals (64,000M) = 1V (Vespene Gas)</div>
         </div>
-        <div class="flex space-x-2">
+        <div>
           <button 
-            @click="emit('convertVespene', 1)"
+            @click="emit('convertMaxVespene')"
             :disabled="minerals < 64000"
-            class="px-3 py-1.5 rounded text-xs font-bold transition-all"
-            :class="minerals >= 64000 ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
+            class="px-4 py-2 rounded text-xs font-bold transition-all shadow-lg"
+            :class="minerals >= 64000 ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer shadow-green-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
           >
-            Convert 1V (64k M)
-          </button>
-          <button 
-            @click="emit('convertVespene', 10)"
-            :disabled="minerals < 640000"
-            class="px-3 py-1.5 rounded text-xs font-bold transition-all"
-            :class="minerals >= 640000 ? 'bg-green-700 hover:bg-green-600 text-white cursor-pointer' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
-          >
-            Convert 10V (640k M)
+            BUY MAX VESPENE ({{ maxPossibleV }}V)
           </button>
         </div>
       </div>

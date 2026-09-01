@@ -21,13 +21,35 @@ export function useZealot(
 
   const maxHp = computed(() => state.value.maxHp + (equipmentStats.value.hp || 0));
   const attackPower = computed(() => state.value.baseAttack + (equipmentStats.value.damage || 0));
-  const attackSpeed = computed(() => Math.max(0.2, state.value.baseAttackSpeed + (equipmentStats.value.attackSpeed || 0)));
+  
+  const clickTimestamps = ref<number[]>([]);
+
+  function recordClick() {
+    const now = Date.now();
+    clickTimestamps.value.push(now);
+    // 3 sec max for average taking (prune clicks older than 3000ms)
+    clickTimestamps.value = clickTimestamps.value.filter(t => now - t <= 3000);
+  }
+
+  const averageCps = computed(() => {
+    const now = Date.now();
+    const validClicks = clickTimestamps.value.filter(t => now - t <= 3000);
+    return validClicks.length / 3.0;
+  });
+
+  const attackSpeed = computed(() => {
+    if (!equipmentStats.value.hasGloves) return 0;
+    const base = state.value.baseAttackSpeed;
+    const itemMultiplier = 1 + (equipmentStats.value.attackSpeed || 0);
+    return Math.max(0.2, base + (itemMultiplier * averageCps.value));
+  });
+
   const defense = computed(() => state.value.baseDefense + (equipmentStats.value.defense || 0));
   
   const hpRegen = computed(() => {
     const base = state.value.baseHpRegen + (equipmentStats.value.hpRegen || 0);
-    // When visiting the Shop Base, gain the effect of 3 Ultimate Regeneration Potions (20,480 * 3 = 61,440 HP/s)
-    const shopRegenBonus = isAtShop && isAtShop.value ? 20480 * 3 : 0;
+    // When visiting the Shop Base, gain the effect of Final Regen (2,048,000 HP/s)
+    const shopRegenBonus = isAtShop && isAtShop.value ? 2048000 : 0;
     return base + shopRegenBonus;
   });
 
@@ -71,6 +93,18 @@ export function useZealot(
     return false;
   }
 
+  function convertMaxMineralsToVespene(): boolean {
+    const costPerV = 64_000;
+    const maxV = Math.floor(state.value.minerals / costPerV);
+    if (maxV > 0) {
+      const totalCost = costPerV * maxV;
+      state.value.minerals -= totalCost;
+      state.value.vespeneGas += maxV;
+      return true;
+    }
+    return false;
+  }
+
   function useEmergencyTeleport(): boolean {
     if (state.value.emergencyTeleports > 0) {
       state.value.emergencyTeleports -= 1;
@@ -103,7 +137,9 @@ export function useZealot(
     gainMinerals,
     spendCurrency,
     convertMineralsToVespene,
+    convertMaxMineralsToVespene,
     useEmergencyTeleport,
     loadState,
+    recordClick,
   };
 }

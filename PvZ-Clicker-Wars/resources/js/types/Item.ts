@@ -1,4 +1,4 @@
-export type ItemCategory = 'blades' | 'gloves' | 'amulet' | 'armor' | 'trinket';
+export type ItemCategory = 'blades' | 'gloves' | 'amulet' | 'armor' | 'trinket' | 'final';
 
 export type ItemRarity = 'common' | 'rare' | 'epic' | 'legendary';
 

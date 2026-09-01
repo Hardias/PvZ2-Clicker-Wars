@@ -10,13 +10,17 @@ export interface Wall {
 
 export interface TurretInfo {
   count: number; // always 8
-  level: number; // 1 to 13
-  attackPower: number; // total attack power or per turret
+  level: number; // 1 to 13+
+  attackPower: number; // total attack power
 }
 
 export interface ProbeBase {
-  wave: number;
+  rankIndex: number;
+  rankName: string;
+  probeKills: number;
+  upgradeCount: number;
+  timeUntilUpgrade: number;
+  maxUpgradeTime: number;
   wall: Wall;
   turret: TurretInfo;
-  bounty: number; // Minerals rewarded upon destruction
 }

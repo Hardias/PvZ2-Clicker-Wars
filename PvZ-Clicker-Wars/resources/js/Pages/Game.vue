@@ -17,18 +17,49 @@ const isAtShop = computed(() => currentView.value === 'shop');
 
 // Composables setup
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
-const { state: zealotState, maxHp, attackPower, attackSpeed, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMineralsToVespene, useEmergencyTeleport, loadState } = useZealot(totalEquipmentStats, isAtShop);
-const { currentWave, probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, damageWall, stopCombat, loadCombatState } = useCombat();
-const { saveGame, loadGame, resetGame } = useSaveSystem(zealotState, slots, currentWave, probeBase);
+const { state: zealotState, maxHp, attackPower, attackSpeed, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
+const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState } = useCombat();
+const { saveGame, loadGame, resetGame } = useSaveSystem(zealotState, slots, probeBase);
 
 const showShopModal = ref(false);
+const autoSaveNotification = ref(false);
+let notificationTimeout: number | null = null;
 
-// Stop turrets when going to shop
+function showSaveNotification() {
+  autoSaveNotification.value = true;
+  if (notificationTimeout) clearTimeout(notificationTimeout);
+  notificationTimeout = window.setTimeout(() => {
+    autoSaveNotification.value = false;
+  }, 3000);
+}
+
+function handleManualSave() {
+  saveGame();
+  showSaveNotification();
+}
+
+// Stop turrets and open shop modal when going to shop
 watch(currentView, (newView) => {
   if (newView === 'shop') {
     stopCombat();
+    showShopModal.value = true;
+  } else {
+    showShopModal.value = false;
   }
 });
+
+// Real-time persistence watchers
+watch(probeBase, () => {
+  saveGame();
+}, { deep: true });
+
+watch(zealotState, () => {
+  saveGame();
+}, { deep: true });
+
+watch(slots, () => {
+  saveGame();
+}, { deep: true });
 
 // Full catalog of Zealot Shop items with correct Mineral/Vespene costs
 const availableShopItems: Item[] = [
@@ -99,17 +130,26 @@ const availableShopItems: Item[] = [
   { id: 'p_mega', name: 'Mega regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 3840 }, cost: 1, currency: 'vespene', description: '1V | +3840/s HP Regen' },
   { id: 'p_eternal', name: 'Eternal regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 7680 }, cost: 2, currency: 'vespene', description: '2V | +7680/s HP Regen' },
   { id: 'p_ultimate', name: 'Ultimate regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 20480 }, cost: 8, currency: 'vespene', description: '8V | +20480/s HP Regen' },
+
+  // --- FINAL ITEMS ---
+  { id: 'b_final', name: 'Final blade', category: 'final', rarity: 'legendary', stats: { damage: 819200, attackSpeed: 40.0 }, cost: 1596, currency: 'vespene', description: '1596V | +819,200 Damage & +4000% Attack Speed (Final Tier)' },
+  { id: 'p_final', name: 'Final regeneration', category: 'final', rarity: 'legendary', stats: { hpRegen: 2048000 }, cost: 512, currency: 'vespene', description: '512V | +2,048,000/s HP Regen (Final Tier)' },
 ];
 
-// Attack action against probe base (Income = damage dealt per click!)
-function handleAttack() {
+// Attack execution logic
+function performAttack() {
   const dmg = attackPower.value;
   gainMinerals(Math.floor(dmg));
-
-  const result = damageWall(dmg);
-  if (result.destroyed) {
-    gainMinerals(result.mineralsGained);
+  const res = damageWall(dmg);
+  if (res.destroyed) {
+    saveGame();
   }
+}
+
+// User manual attack action against probe base (records click for dynamic attack speed)
+function handleAttack() {
+  recordClick();
+  performAttack();
 }
 
 // Purchase item from shop
@@ -120,9 +160,10 @@ function buyItem(item: Item, slotIndex: number) {
   }
 }
 
-function handleConvertVespene(count: number) {
-  if (convertMineralsToVespene(count)) {
+function handleConvertMaxVespene() {
+  if (convertMaxMineralsToVespene()) {
     saveGame();
+    showSaveNotification();
   }
 }
 
@@ -134,9 +175,9 @@ let autoAttackInterval: number | null = null;
 onMounted(() => {
   const saved = loadGame();
   if (saved) {
-    loadState(saved.zealot);
-    loadInventory(saved.inventory);
-    loadCombatState(saved.wave, saved.probeBase);
+    if (saved.zealot) loadState(saved.zealot);
+    if (saved.inventory) loadInventory(saved.inventory);
+    if (saved.probeBase) loadCombatState(saved.probeBase);
   }
 
   // Reliable Auto-Attack Interval when gloves / vespene blade equipped
@@ -146,7 +187,7 @@ onMounted(() => {
       const now = Date.now();
       const interval = 1000 / Math.max(0.1, attackSpeed.value);
       if (now - lastAtkTime >= interval) {
-        handleAttack();
+        performAttack();
         lastAtkTime = now;
       }
     }
@@ -155,6 +196,12 @@ onMounted(() => {
   tickInterval = window.setInterval(() => {
     // Probe Auto Repair every second (25% max HP/s) regardless of location
     autoRepairWall();
+
+    // Probe Defense Upgrade timer tick
+    const upgraded = tickProbeUpgrades();
+    if (upgraded) {
+      saveGame();
+    }
 
     // HP Regeneration
     if (hpRegen.value > 0 && zealotState.value.hp < maxHp.value) {
@@ -184,7 +231,8 @@ onMounted(() => {
 
   saveInterval = window.setInterval(() => {
     saveGame();
-  }, 15000);
+    showSaveNotification();
+  }, 120000);
 });
 
 onUnmounted(() => {
@@ -202,7 +250,7 @@ onUnmounted(() => {
       :minerals="zealotState.minerals" 
       :vespeneGas="zealotState.vespeneGas"
       v-model:currentView="currentView"
-      @save="saveGame"
+      @save="handleManualSave"
       @reset="resetGame"
     />
 
@@ -227,7 +275,6 @@ onUnmounted(() => {
         <div v-if="currentView === 'battle'">
           <BattleArea 
             :probeBase="probeBase"
-            :currentWave="currentWave"
             :attackPower="attackPower"
             @attack="handleAttack"
           />
@@ -236,7 +283,7 @@ onUnmounted(() => {
         <div v-else class="bg-gray-900 border border-cyan-500/40 rounded-lg p-6 text-center shadow-xl">
           <h2 class="text-2xl font-bold text-amber-400 mb-2">ZEALOT SHOPPING AREA</h2>
           <p class="text-sm text-gray-400 mb-6">
-            You are at the Zealot Shop Base. Your shields/HP are rapidly regenerating (+61,440 HP/s). Turrets have ceased fire.
+            You are at the Zealot Shop Base. Your shields/HP are rapidly regenerating (+2,048,000 HP/s Final Regen). Turrets have ceased fire.
           </p>
           <button 
             @click="showShopModal = true"
@@ -261,9 +308,24 @@ onUnmounted(() => {
       :vespeneGas="zealotState.vespeneGas"
       :availableItems="availableShopItems"
       @buyItem="buyItem"
-      @convertVespene="handleConvertVespene"
+      @convertMaxVespene="handleConvertMaxVespene"
       @close="showShopModal = false"
     />
+
+    <!-- Auto-save / Manual save Notification Toast -->
+    <Transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="opacity-0 translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-2"
+    >
+      <div v-if="autoSaveNotification" class="fixed bottom-4 right-4 bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center space-x-2 backdrop-blur-sm">
+        <span class="text-sm">💾</span>
+        <span>Game saved successfully! (Auto-saves every 2 minutes)</span>
+      </div>
+    </Transition>
   </div>
 </template>
 

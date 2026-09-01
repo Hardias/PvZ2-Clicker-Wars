@@ -23,8 +23,8 @@ export function useInventory() {
       totalDefenseReduction: 0,
     };
 
-    // Auto-attack enabled if gloves equipped OR any vespene gas blade equipped (which has max glove effect built-in)
-    stats.hasGloves = slots.value.some(s => s.item && (s.item.category === 'gloves' || s.item.currency === 'vespene'));
+    // Auto-attack enabled if gloves equipped OR any vespene gas blade / final item equipped
+    stats.hasGloves = slots.value.some(s => s.item && (s.item.category === 'gloves' || s.item.currency === 'vespene' || s.item.category === 'final'));
 
     let maxAttackSpeed = 0;
     let combinedReduction = 0;
@@ -40,6 +40,9 @@ export function useInventory() {
         // Vespene gas blades have max glove effect built-in (+4.0 max speed)
         if (slot.item.category === 'blades' && slot.item.currency === 'vespene') {
           spd = Math.max(spd, 4.0);
+        }
+        if (slot.item.category === 'final' && slot.item.stats.attackSpeed) {
+          spd = Math.max(spd, slot.item.stats.attackSpeed);
         }
 
         // Attack speed does not stack; only the MAX item is counted ONCE
