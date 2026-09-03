@@ -11,7 +11,7 @@ interface Props {
   attackSpeed: number;
   defense: number;
   hpRegen: number;
-  equipmentStats: ItemStats;
+  equipmentStats: ItemStats & { totalDefenseReduction?: number };
 }
 
 const props = defineProps<Props>();
@@ -19,6 +19,16 @@ const props = defineProps<Props>();
 const hpPercentage = computed(() => {
   return Math.min(100, Math.max(0, (props.zealot.hp / props.maxHp) * 100));
 });
+
+function formatDefenseReduction(reduction: number): string {
+  const pct = (reduction || 0) * 100;
+  if (pct === 0) return '0%';
+  const rounded = Math.round(pct * 10) / 10;
+  if (Number.isInteger(rounded)) {
+    return `${rounded}%`;
+  }
+  return String(rounded).replace('.', ',') + '%';
+}
 </script>
 
 <template>
@@ -60,9 +70,9 @@ const hpPercentage = computed(() => {
         <span class="font-mono text-cyan-300 font-semibold">{{ attackSpeed.toFixed(1) }}/s</span>
       </div>
       <div class="flex justify-between">
-        <span class="text-gray-400">Defense:</span>
+        <span class="text-gray-400" title="Damage Reduction Percentage">Defense:</span>
         <span class="font-mono text-cyan-300 font-semibold">
-          {{ formatNumber(defense) }}
+          {{ formatDefenseReduction((equipmentStats as any).totalDefenseReduction || 0) }}
         </span>
       </div>
       <div class="flex justify-between">
@@ -75,3 +85,4 @@ const hpPercentage = computed(() => {
 
 <style scoped>
 </style>
+

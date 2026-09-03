@@ -6,6 +6,7 @@ import { formatNumber } from '../utils/format';
 interface Props {
   probeBase: ProbeBase;
   attackPower: number;
+  isImmobilized?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -25,7 +26,11 @@ const upgradeProgressPercentage = computed(() => {
 });
 
 const wallDisplayName = computed(() => {
-  const tier = props.probeBase.wall.tier;
+  const base = props.probeBase;
+  if (base.rareType === 'pather') {
+    return `Pather Wall (${base.patherWallsRemaining || 0}/50)`;
+  }
+  const tier = base.wall.tier;
   switch (tier) {
     case 'wall': return 'Wall';
     case 'ultra': return 'Ultra Wall';
@@ -35,6 +40,40 @@ const wallDisplayName = computed(() => {
     default: return 'Wall';
   }
 });
+
+const rareProbeLabel = computed(() => {
+  const t = props.probeBase.rareType;
+  switch (t) {
+    case 'doubleBaser': return '✨ Double Baser (2x Stats)';
+    case 'goldBaser': return '🌟 Gold Baser (Double Turrets)';
+    case 'pather': return '🐍 Pather (50 Walls & Void Traps)';
+    case 'tripleBaser': return '💥 Triple Baser (3x Stats)';
+    case 'trainingProbe': return '🎯 Training Probe (Void Reflexes)';
+    default: return '';
+  }
+});
+
+const abilityName = computed(() => {
+  return props.probeBase.ability === 'chrono' ? 'Chrono Boost' : 'Void Prism';
+});
+
+const abilityDescription = computed(() => {
+  if (props.probeBase.rareType === 'trainingProbe') {
+    return 'Training Void Prism (Active reflexes)';
+  }
+  if (props.probeBase.ability === 'chrono') {
+    return '20% snellere upgrade timer (10s duur, 40s cooldown)';
+  }
+  return 'Immobiliseert Zealot voor 4s (45s cooldown)';
+});
+
+function formatTimer(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  if (Number.isInteger(rounded)) {
+    return `${rounded}s`;
+  }
+  return String(rounded).replace('.', ',') + 's';
+}
 </script>
 
 <template>
@@ -53,9 +92,29 @@ const wallDisplayName = computed(() => {
       </div>
     </div>
 
+    <!-- Clanned Probe Banner (Always takes up layout space, invisible when inactive) -->
+    <div 
+      class="w-full my-1.5 bg-gradient-to-r from-blue-950 via-cyan-950 to-blue-950 border border-cyan-400/60 rounded-lg py-1.5 px-3 text-center text-cyan-200 font-bold text-xs shadow-lg transition-opacity select-none"
+      :class="probeBase.isClanned ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
+    >
+      🛡️ CLANNED PROBE [{{ probeBase.clanName || 'Clan' }}] (3x HP & Turrets)
+    </div>
+
+    <!-- Rare Probe Banner (Always takes up layout space, invisible when inactive) -->
+    <div 
+      class="w-full my-1 bg-gradient-to-r from-purple-950 via-amber-950 to-purple-950 border border-amber-500/60 rounded-lg py-1.5 px-3 text-center text-amber-300 font-bold text-xs shadow-lg transition-opacity select-none"
+      :class="probeBase.isRare ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
+    >
+      {{ rareProbeLabel || 'Rare Probe' }}
+    </div>
+
     <!-- Probe Base Interactive Arena -->
-    <div class="my-6 w-full flex flex-col items-center">
-      <div class="relative w-full max-w-md bg-gray-950 border-2 border-cyan-500/60 rounded-xl p-6 shadow-2xl flex flex-col items-center cursor-pointer select-none transition-transform active:scale-[0.99]" @click="emit('attack')">
+    <div class="my-3 w-full flex flex-col items-center">
+      <div 
+        class="relative w-full max-w-md bg-gray-950 border-2 rounded-xl p-6 shadow-2xl flex flex-col items-center cursor-pointer select-none transition-transform active:scale-[0.99]"
+        :class="isImmobilized ? 'border-purple-500/80 bg-purple-950/20' : 'border-cyan-500/60'"
+        @click="emit('attack')"
+      >
         
         <!-- Probe Icon & Status -->
         <div class="flex items-center space-x-3 mb-3">
@@ -64,15 +123,33 @@ const wallDisplayName = computed(() => {
           </div>
           <div>
             <div class="text-sm font-bold text-cyan-300">Probe Command (Rank {{ probeBase.rankName }})</div>
-            <div class="text-xs text-gray-400">Click to Assault Wall! (-{{ formatNumber(attackPower) }} DMG)</div>
+            <div class="text-xs text-gray-400">
+              {{ isImmobilized ? '⚠️ ZEALOT IMMOBILISEERD DOOR VOID PRISM!' : `Klik om muur aan te vallen! (-${formatNumber(attackPower)} DMG)` }}
+            </div>
           </div>
+        </div>
+
+        <!-- Probe Ability Status Banner -->
+        <div class="w-full mb-3 bg-gray-900/90 px-3 py-2 rounded border border-purple-500/40 text-xs flex flex-col items-center">
+          <div class="flex justify-between w-full font-bold text-purple-300 mb-0.5">
+            <span>ABILITY: {{ abilityName.toUpperCase() }}</span>
+            <span class="font-mono">
+              <span v-if="probeBase.abilityActiveTimer > 0" class="text-amber-400 animate-pulse">
+                ACTIEF ({{ formatTimer(probeBase.abilityActiveTimer) }})
+              </span>
+              <span v-else class="text-gray-400">
+                CD: {{ formatTimer(probeBase.abilityCooldown) }}
+              </span>
+            </span>
+          </div>
+          <div class="text-[10px] text-gray-400 italic text-center">{{ abilityDescription }}</div>
         </div>
 
         <!-- Upgrade Timer / Progress Bar -->
         <div class="w-full mb-3 bg-gray-900 px-3 py-2 rounded border border-amber-900/40">
           <div class="flex justify-between text-[10px] text-amber-300 mb-1 font-bold">
-            <span>PROBES UPGRADING DEFENSES</span>
-            <span class="font-mono">{{ probeBase.timeUntilUpgrade }}s</span>
+            <span>PROBES UPGRADING DEFENSES {{ !probeBase.hasStartedCombat ? '(GEPAUSEERD)' : (probeBase.ability === 'chrono' && probeBase.abilityActiveTimer > 0 ? '(+20% SNELHEID)' : '') }}</span>
+            <span class="font-mono">{{ formatTimer(probeBase.timeUntilUpgrade) }}</span>
           </div>
           <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-amber-700/40">
             <div class="bg-amber-500 h-full transition-all duration-1000" :style="{ width: `${upgradeProgressPercentage}%` }"></div>
@@ -85,7 +162,7 @@ const wallDisplayName = computed(() => {
             class="text-[10px] bg-red-950/80 text-red-300 px-2.5 py-0.5 rounded-full border border-red-700/50 animate-pulse transition-opacity duration-200"
             :class="probeBase.wall.currentHp < probeBase.wall.maxHp ? 'opacity-100 visible' : 'opacity-0 invisible'"
           >
-            ⚡ PROBES AUTO-REPAIRING WALL (+25% HP/s) ⚡
+            ⚡ PROBES AUTO-REPARATIE ({{ probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%') }} HP/s) ⚡
           </span>
         </div>
 
@@ -102,8 +179,8 @@ const wallDisplayName = computed(() => {
             </div>
         </div>
 
-        <!-- Single Turrets Summary Bar (8x Turret) -->
-        <div v-if="probeBase.turret" class="w-full">
+        <!-- Single Turrets Summary Bar -->
+        <div v-if="probeBase.turret && probeBase.turret.count > 0" class="w-full">
           <div class="bg-gray-900/80 px-4 py-2.5 rounded-lg border border-red-900/40 flex justify-between items-center text-xs">
             <div class="flex items-center space-x-2">
               <span class="text-red-400 text-base">🛡️</span>
@@ -112,16 +189,19 @@ const wallDisplayName = computed(() => {
             <span class="font-mono text-red-300 font-semibold">ATK: {{ formatNumber(probeBase.turret.attackPower) }}/s</span>
           </div>
         </div>
+        <div v-else class="w-full bg-gray-900/80 px-4 py-2.5 rounded-lg border border-gray-800 flex justify-between items-center text-xs text-gray-500">
+          <span>🛡️ No Turrets (Pather Unit)</span>
+        </div>
 
-        <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce">
-          ⚡ CLICK HERE TO ATTACK THE BASE ⚡
+        <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
+          {{ isImmobilized ? '🛑 ZEALOT KAN NIET AANVALLEN TIJDENS IMMOBILISATIE! 🛑' : '⚡ KLIK HIER OM DE MUUR AAN TE VALLEN ⚡' }}
         </div>
       </div>
     </div>
 
     <!-- Quick controls hint -->
     <div class="text-xs text-gray-500 text-center">
-      Defeat the Probe Wall to destroy the defending Probe, increase Probe Rank, and claim bounties!
+      Versla de Probe Wall om de verdedigende Probe te vernietigen, Probe Rank te verhogen en beloningen te claimen!
     </div>
   </div>
 </template>

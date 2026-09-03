@@ -5,13 +5,16 @@ interface Props {
   minerals: number;
   vespeneGas: number;
   currentView: 'battle' | 'shop';
+  autosaveEnabled: boolean;
 }
 
 defineProps<Props>();
 const emit = defineEmits<{
   (e: 'update:currentView', view: 'battle' | 'shop'): void;
   (e: 'save'): void;
+  (e: 'load'): void;
   (e: 'reset'): void;
+  (e: 'toggleAutosave'): void;
 }>();
 </script>
 
@@ -57,13 +60,29 @@ const emit = defineEmits<{
         </button>
       </div>
 
-      <!-- Save / Reset -->
-      <div class="flex space-x-2">
-        <button @click="emit('save')" class="bg-gray-800 hover:bg-gray-700 text-cyan-300 px-3 py-1.5 rounded text-xs font-bold border border-cyan-700/50">
-          💾 SAVE
-        </button>
-        <button @click="emit('reset')" class="bg-red-950/60 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded text-xs font-bold border border-red-800/50">
-          🔄 RESET
+      <!-- Save / Load / Autosave Toggle / Reset Group -->
+      <div class="flex flex-col space-y-1.5 items-end">
+        <div class="flex space-x-2">
+          <button @click="emit('save')" class="bg-gray-800 hover:bg-gray-700 text-cyan-300 px-3 py-1.5 rounded text-xs font-bold border border-cyan-700/50 flex items-center space-x-1">
+            <span>💾</span>
+            <span>SAVE</span>
+          </button>
+          <button @click="emit('load')" class="bg-gray-800 hover:bg-gray-700 text-purple-300 px-3 py-1.5 rounded text-xs font-bold border border-purple-700/50 flex items-center space-x-1">
+            <span>📂</span>
+            <span>LOAD</span>
+          </button>
+          <button @click="emit('reset')" class="bg-red-950/60 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded text-xs font-bold border border-red-800/50">
+            🔄 RESET
+          </button>
+        </div>
+        <!-- Autosave Toggle Button (Top right, under save buttons, obvious active indicator) -->
+        <button 
+          @click="emit('toggleAutosave')" 
+          class="px-2.5 py-1 rounded text-[10px] font-bold border transition-all flex items-center space-x-1.5 shadow-sm"
+          :class="autosaveEnabled ? 'bg-green-950/90 text-green-200 border-green-400 shadow-green-500/40' : 'bg-gray-900 text-gray-400 border-gray-700'"
+        >
+          <span class="w-2.5 h-2.5 rounded-full" :class="autosaveEnabled ? 'bg-green-400 shadow-[0_0_10px_#4ade80] animate-ping' : 'bg-gray-500'"></span>
+          <span>AUTO-SAVE: {{ autosaveEnabled ? 'AAN' : 'UIT' }}</span>
         </button>
       </div>
     </div>

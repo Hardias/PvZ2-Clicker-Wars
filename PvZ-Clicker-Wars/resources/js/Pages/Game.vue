@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useInventory } from '../composables/useInventory';
 import { useZealot } from '../composables/useZealot';
 import { useCombat } from '../composables/useCombat';
-import { useSaveSystem } from '../composables/useSaveSystem';
+import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
 import { Item } from '../types/Item';
 
 import GameHeader from '../Components/GameHeader.vue';
@@ -11,21 +11,57 @@ import ZealotStatsComponent from '../Components/ZealotStatsComponent.vue';
 import InventoryGrid from '../Components/InventoryGrid.vue';
 import BattleArea from '../Components/BattleArea.vue';
 import ShopModal from '../Components/ShopModal.vue';
+import SaveModal from '../Components/SaveModal.vue';
+import LoadModal from '../Components/LoadModal.vue';
 
 const currentView = ref<'battle' | 'shop'>('battle');
 const isAtShop = computed(() => currentView.value === 'shop');
 
+const autosaveEnabled = ref<boolean>(localStorage.getItem('pvz2_autosave_enabled') !== 'false');
+
+watch(autosaveEnabled, (val) => {
+  localStorage.setItem('pvz2_autosave_enabled', String(val));
+});
+
+function toggleAutosave() {
+  autosaveEnabled.value = !autosaveEnabled.value;
+  showSaveNotification(autosaveEnabled.value ? 'Auto-save ingeschakeld!' : 'Auto-save uitgeschakeld!');
+}
+
 // Composables setup
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
 const { state: zealotState, maxHp, attackPower, attackSpeed, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
-const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState } = useCombat();
-const { saveGame, loadGame, resetGame } = useSaveSystem(zealotState, slots, probeBase);
+const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather } = useCombat();
+const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame } = useSaveSystem(zealotState, slots, probeBase);
 
 const showShopModal = ref(false);
+const showSaveModal = ref(false);
+const showLoadModal = ref(false);
+const saveNotificationText = ref('Game geladen!');
 const autoSaveNotification = ref(false);
 let notificationTimeout: number | null = null;
 
-function showSaveNotification() {
+const disablePather = ref<boolean>(localStorage.getItem('pvz2_disable_pather') === 'true');
+
+function toggleDisablePather() {
+  disablePather.value = !disablePather.value;
+  localStorage.setItem('pvz2_disable_pather', String(disablePather.value));
+  if (disablePather.value) {
+    rerollIfPather();
+  }
+  showSaveNotification(disablePather.value ? 'Pather probes uitgeschakeld (Reroll uitgevoerd)!' : 'Pather probes ingeschakeld!');
+}
+
+const slotMetadata = computed<Record<'A' | 'B' | 'C' | 'autosave', SlotMeta>>(() => {
+  return getAllSlotMetadata();
+});
+
+const mostRecentSlot = computed(() => {
+  return getMostRecentSlot();
+});
+
+function showSaveNotification(text = 'Game opgeslagen!') {
+  saveNotificationText.value = text;
   autoSaveNotification.value = true;
   if (notificationTimeout) clearTimeout(notificationTimeout);
   notificationTimeout = window.setTimeout(() => {
@@ -33,33 +69,106 @@ function showSaveNotification() {
   }, 3000);
 }
 
-function handleManualSave() {
-  saveGame();
-  showSaveNotification();
+function handleOpenSaveModal() {
+  showSaveModal.value = true;
+}
+
+function handleOpenLoadModal() {
+  showLoadModal.value = true;
+}
+
+function handleSaveSlot(slot: 'A' | 'B' | 'C') {
+  saveToSlot(slot);
+  showSaveModal.value = false;
+  showSaveNotification(`Game succesvol opgeslagen in Slot ${slot}!`);
+}
+
+function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
+  const saved = loadFromSlot(slot);
+  if (saved) {
+    if (saved.zealot) loadState(saved.zealot);
+    if (saved.inventory) loadInventory(saved.inventory);
+    if (saved.probeBase) loadCombatState(saved.probeBase);
+    showLoadModal.value = false;
+    const slotName = slot === 'autosave' ? 'Autosave' : `Slot ${slot}`;
+    showSaveNotification(`Game geladen uit ${slotName}!`);
+  } else {
+    alert(`Save Slot ${slot === 'autosave' ? 'Autosave' : slot} is leeg en bevat geen opgeslagen game.`);
+  }
+}
+
+// Reset current session without deleting save slots, keeping death counter
+function handleReset() {
+  const currentDeaths = zealotState.value.deaths;
+  zealotState.value = {
+    hp: 100,
+    maxHp: 100,
+    baseAttack: 15,
+    baseAttackSpeed: 1.0,
+    baseDefense: 5,
+    baseHpRegen: 1.0,
+    minerals: 50,
+    vespeneGas: 0,
+    emergencyTeleports: 2,
+    deaths: currentDeaths,
+    isImmobilized: false,
+  };
+  slots.value = slots.value.map((_, idx) => ({
+    slotIndex: idx,
+    category: 'blades',
+    item: null,
+  }));
+  probeBase.value = {
+    rankIndex: 0,
+    rankName: 'D-',
+    probeKills: 0,
+    upgradeCount: 0,
+    timeUntilUpgrade: 45,
+    maxUpgradeTime: 45,
+    wall: {
+      tier: 'wall',
+      level: 1,
+      maxHp: 200,
+      currentHp: 200,
+      defense: 2,
+    },
+    turret: { count: 8, level: 1, attackPower: 40 },
+    ability: 'chrono',
+    abilityCooldown: 40,
+    abilityActiveTimer: 0,
+    hasStartedCombat: false,
+    isRare: false,
+    rareType: null,
+    isClanned: false,
+  };
+  stopCombat(zealotState.value);
+  showSaveNotification('Spel is gereset naar een verse start (Save slots behouden)!');
+}
+
+// Unequip item and refund full cost
+function handleUnequip(slotIndex: number) {
+  const item = unequipItem(slotIndex);
+  if (item) {
+    if (item.currency === 'vespene') {
+      zealotState.value.vespeneGas += item.cost;
+    } else {
+      gainMinerals(item.cost);
+    }
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification(`Item ${item.name} verkocht voor ${formatNumber(item.cost)}${item.currency === 'vespene' ? 'V' : 'M'}!`);
+  }
 }
 
 // Stop turrets and open shop modal when going to shop
 watch(currentView, (newView) => {
   if (newView === 'shop') {
-    stopCombat();
+    stopCombat(zealotState.value);
     showShopModal.value = true;
   } else {
     showShopModal.value = false;
+    stopCombat(zealotState.value);
   }
 });
-
-// Real-time persistence watchers
-watch(probeBase, () => {
-  saveGame();
-}, { deep: true });
-
-watch(zealotState, () => {
-  saveGame();
-}, { deep: true });
-
-watch(slots, () => {
-  saveGame();
-}, { deep: true });
 
 // Full catalog of Zealot Shop items with correct Mineral/Vespene costs
 const availableShopItems: Item[] = [
@@ -138,16 +247,18 @@ const availableShopItems: Item[] = [
 
 // Attack execution logic
 function performAttack() {
+  if (zealotState.value.isImmobilized) return;
   const dmg = attackPower.value;
   gainMinerals(Math.floor(dmg));
-  const res = damageWall(dmg);
+  const res = damageWall(dmg, zealotState.value);
   if (res.destroyed) {
-    saveGame();
+    if (autosaveEnabled.value) autoSave();
   }
 }
 
 // User manual attack action against probe base (records click for dynamic attack speed)
 function handleAttack() {
+  if (zealotState.value.isImmobilized) return;
   recordClick();
   performAttack();
 }
@@ -156,24 +267,26 @@ function handleAttack() {
 function buyItem(item: Item, slotIndex: number) {
   if (spendCurrency(item.cost, item.currency || 'minerals')) {
     equipItem(item, slotIndex);
-    saveGame();
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification(`Item ${item.name} gekocht en uitgerust!`);
   }
 }
 
 function handleConvertMaxVespene() {
   if (convertMaxMineralsToVespene()) {
-    saveGame();
-    showSaveNotification();
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification('Vespene gas geconverteerd en automatisch opgeslagen!');
   }
 }
 
 // Game tick loop (Regen, Turret Damage, Auto-Save, Auto-Attack)
-let tickInterval: number | null = null;
+let fastTickInterval: number | null = null;
+let slowTickInterval: number | null = null;
 let saveInterval: number | null = null;
 let autoAttackInterval: number | null = null;
 
 onMounted(() => {
-  const saved = loadGame();
+  const saved = loadLatestGame();
   if (saved) {
     if (saved.zealot) loadState(saved.zealot);
     if (saved.inventory) loadInventory(saved.inventory);
@@ -183,6 +296,7 @@ onMounted(() => {
   // Reliable Auto-Attack Interval when gloves / vespene blade equipped
   let lastAtkTime = Date.now();
   autoAttackInterval = window.setInterval(() => {
+    if (zealotState.value.isImmobilized) return;
     if (totalEquipmentStats.value.hasGloves && currentView.value === 'battle') {
       const now = Date.now();
       const interval = 1000 / Math.max(0.1, attackSpeed.value);
@@ -193,53 +307,75 @@ onMounted(() => {
     }
   }, 25);
 
-  tickInterval = window.setInterval(() => {
-    // Probe Auto Repair every second (25% max HP/s) regardless of location
-    autoRepairWall();
-
-    // Probe Defense Upgrade timer tick
-    const upgraded = tickProbeUpgrades();
-    if (upgraded) {
-      saveGame();
-    }
-
-    // HP Regeneration
+  // Fast tick (100ms) for smooth HP regen, smooth Turret combat damage, and 200ms wall repair for double/triple basers
+  let wallRepairCounter = 0;
+  fastTickInterval = window.setInterval(() => {
+    // HP Regeneration (per 100ms)
     if (hpRegen.value > 0 && zealotState.value.hp < maxHp.value) {
-      heal(hpRegen.value);
+      heal(hpRegen.value / 10);
     }
-    // Turret Damage if engaged in combat
+
+    // 200ms wall repair check for double/triple basers (every 2nd 100ms tick = 200ms)
+    wallRepairCounter++;
+    if (wallRepairCounter >= 2) {
+      wallRepairCounter = 0;
+      if (probeBase.value.rareType === 'doubleBaser' || probeBase.value.rareType === 'tripleBaser') {
+        autoRepairWall(true);
+      }
+    }
+
+    // Turret Damage if engaged in combat (per 100ms) - PAUSED during Training Probe waiting15 or castingVoid states so zealot never dies helplessly!
     if (isEngagedInCombat.value && currentView.value === 'battle') {
-      if (totalTurretDps.value > 0) {
-        takeDamage(totalTurretDps.value);
+      const isTrainingBlocked = probeBase.value.rareType === 'trainingProbe' && (probeBase.value.trainingState === 'waiting15' || probeBase.value.trainingState === 'castingVoid');
+      if (totalTurretDps.value > 0 && !isTrainingBlocked) {
+        const damageThisTick = totalTurretDps.value / 10;
+        takeDamage(damageThisTick);
         if (zealotState.value.hp <= 0) {
-          // Check emergency teleport
           const teleported = useEmergencyTeleport();
           if (teleported) {
-            stopCombat();
+            stopCombat(zealotState.value);
             currentView.value = 'shop';
+            if (autosaveEnabled.value) autoSave();
             alert(`⚠️ EMERGENCY TELEPORT ACTIVATED! (${zealotState.value.emergencyTeleports} remaining) You warped back to the Zealot Shop!`);
           } else {
-            // Permadeath!
-            stopCombat();
-            alert('💀 ZEALOT HAS FALLEN IN BATTLE! Emergency teleports depleted. Permadeath reached. Restarting game...');
-            resetGame();
+            stopCombat(zealotState.value);
+            alert('💀 ZEALOT IS GESNEUVELD IN GEVECHT! Geen emergency teleports meer over. Harde reset van de sessie...');
+            handleReset();
           }
         }
       }
     }
+  }, 100);
+
+  // Slow tick (1000ms) for upgrade timers and normal wall auto-repair
+  slowTickInterval = window.setInterval(() => {
+    if (probeBase.value.rareType !== 'doubleBaser' && probeBase.value.rareType !== 'tripleBaser') {
+      autoRepairWall(false);
+    }
+
+    const upgraded = tickProbeUpgrades(zealotState.value);
+    if (upgraded) {
+      if (autosaveEnabled.value) autoSave();
+    }
   }, 1000);
 
+  // Autosave interval every 2 minutes
   saveInterval = window.setInterval(() => {
-    saveGame();
-    showSaveNotification();
+    if (autosaveEnabled.value) {
+      autoSave();
+      showSaveNotification('Autosave bijgewerkt!');
+    }
   }, 120000);
 });
 
 onUnmounted(() => {
-  if (tickInterval) clearInterval(tickInterval);
+  if (fastTickInterval) clearInterval(fastTickInterval);
+  if (slowTickInterval) clearInterval(slowTickInterval);
   if (saveInterval) clearInterval(saveInterval);
   if (autoAttackInterval) clearInterval(autoAttackInterval);
-  saveGame();
+  if (autosaveEnabled.value) {
+    autoSave();
+  }
 });
 </script>
 
@@ -250,8 +386,11 @@ onUnmounted(() => {
       :minerals="zealotState.minerals" 
       :vespeneGas="zealotState.vespeneGas"
       v-model:currentView="currentView"
-      @save="handleManualSave"
-      @reset="resetGame"
+      :autosaveEnabled="autosaveEnabled"
+      @save="handleOpenSaveModal"
+      @load="handleOpenLoadModal"
+      @reset="handleReset"
+      @toggleAutosave="toggleAutosave"
     />
 
     <!-- Main Content Layout: Left (Stats), Center (Battle/Shop), Right (Equipment 6 flexible slots) -->
@@ -276,6 +415,7 @@ onUnmounted(() => {
           <BattleArea 
             :probeBase="probeBase"
             :attackPower="attackPower"
+            :isImmobilized="zealotState.isImmobilized"
             @attack="handleAttack"
           />
         </div>
@@ -296,7 +436,7 @@ onUnmounted(() => {
 
       <!-- Right Column: Equipment Grid (6 Flexible Slots) -->
       <div class="lg:col-span-1">
-        <InventoryGrid :slots="slots" @unequip="(idx) => { unequipItem(idx); saveGame(); }" />
+        <InventoryGrid :slots="slots" @unequip="handleUnequip" />
       </div>
 
     </main>
@@ -307,23 +447,53 @@ onUnmounted(() => {
       :minerals="zealotState.minerals"
       :vespeneGas="zealotState.vespeneGas"
       :availableItems="availableShopItems"
+      :slots="slots"
       @buyItem="buyItem"
+      @unequip="handleUnequip"
       @convertMaxVespene="handleConvertMaxVespene"
       @close="showShopModal = false"
     />
 
-    <!-- Auto-save / Manual save Notification Toast -->
+    <!-- Save Modal Overlay (Slots A, B, C) -->
+    <SaveModal 
+      v-if="showSaveModal"
+      :slotMetadata="slotMetadata"
+      @saveSlot="handleSaveSlot"
+      @close="showSaveModal = false"
+    />
+
+    <!-- Load Modal Overlay (Slots A, B, C, Autosave + Most Recent indicator) -->
+    <LoadModal 
+      v-if="showLoadModal"
+      :slotMetadata="slotMetadata"
+      :mostRecentSlot="mostRecentSlot"
+      @loadSlot="handleLoadSlot"
+      @close="showLoadModal = false"
+    />
+
+    <!-- TIJDELIJKE DISABLE PATHER (Toggle button, bottom right) -->
+    <button 
+      @click="toggleDisablePather"
+      class="fixed bottom-4 right-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all"
+      :class="disablePather ? 'bg-red-950 text-red-200 border-red-500 shadow-red-500/30' : 'bg-gray-900 text-gray-300 border-gray-700 hover:bg-gray-800'"
+      title="Toggle disable Pather probes (Rerolls if active)"
+    >
+      <span>🐍</span>
+      <span>PATHER: {{ disablePather ? 'UIT (Reroll)' : 'AAN' }}</span>
+    </button>
+
+    <!-- Notification Toast -->
     <Transition
       enter-active-class="transition ease-out duration-300"
       enter-from-class="opacity-0 translate-y-2"
       enter-to-class="opacity-100 translate-y-0"
       leave-active-class="transition ease-in duration-200"
       leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-2"
+      leave-to-class="opacity-100 translate-y-0"
     >
-      <div v-if="autoSaveNotification" class="fixed bottom-4 right-4 bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center space-x-2 backdrop-blur-sm">
+      <div v-if="autoSaveNotification" class="fixed bottom-16 right-4 bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center space-x-2 backdrop-blur-sm">
         <span class="text-sm">💾</span>
-        <span>Game saved successfully! (Auto-saves every 2 minutes)</span>
+        <span><span>{{ saveNotificationText }}</span></span>
       </div>
     </Transition>
   </div>

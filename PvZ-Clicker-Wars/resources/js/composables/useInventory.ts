@@ -1,16 +1,42 @@
 import { ref, computed } from 'vue';
 import { Item, InventorySlot, ItemStats } from '../types/Item';
 
+/**
+ * Composable managing Zealot 6-slot inventory, item equipping, unequipping, and combined equipment stats.
+ */
 export function useInventory() {
-  const slots = ref<InventorySlot[]>([
-    { slotIndex: 0, category: 'blades', item: null },
-    { slotIndex: 1, category: 'blades', item: null },
-    { slotIndex: 2, category: 'blades', item: null },
-    { slotIndex: 3, category: 'blades', item: null },
-    { slotIndex: 4, category: 'blades', item: null },
-    { slotIndex: 5, category: 'blades', item: null },
-  ]);
+  /** Load initial 6 equipment slots from storage or empty slots */
+  function loadInitialSlots(): InventorySlot[] {
+    try {
+      const raw = localStorage.getItem('pvz2_slot_A') || localStorage.getItem('pvz2_slot_B') || localStorage.getItem('pvz2_slot_C') || localStorage.getItem('pvz2_autosave') || localStorage.getItem('pvz2_inventory');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const savedSlots = parsed.inventory || parsed;
+        if (Array.isArray(savedSlots) && savedSlots.length === 6) {
+          return savedSlots.map((s, idx) => ({
+            slotIndex: idx,
+            category: s.item ? s.item.category : 'blades',
+            item: s.item || null,
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load inventory from storage:', e);
+    }
+    return [
+      { slotIndex: 0, category: 'blades', item: null },
+      { slotIndex: 1, category: 'blades', item: null },
+      { slotIndex: 2, category: 'blades', item: null },
+      { slotIndex: 3, category: 'blades', item: null },
+      { slotIndex: 4, category: 'blades', item: null },
+      { slotIndex: 5, category: 'blades', item: null },
+    ];
+  }
 
+  // Reactive 6 equipment slots
+  const slots = ref<InventorySlot[]>(loadInitialSlots());
+
+  // Compute total aggregated stats across all equipped items in the 6 slots
   const totalEquipmentStats = computed<ItemStats & { hasGloves: boolean; totalDefenseReduction: number }>(() => {
     const stats: ItemStats & { hasGloves: boolean; totalDefenseReduction: number } = {
       damage: 0,
@@ -23,7 +49,7 @@ export function useInventory() {
       totalDefenseReduction: 0,
     };
 
-    // Auto-attack enabled if gloves equipped OR any vespene gas blade / final item equipped
+    // Auto-attack enabled if gloves equipped OR vespene blade / final item equipped
     stats.hasGloves = slots.value.some(s => s.item && (s.item.category === 'gloves' || s.item.currency === 'vespene' || s.item.category === 'final'));
 
     let maxAttackSpeed = 0;
@@ -37,7 +63,6 @@ export function useInventory() {
         if (slot.item.stats.hpRegen) stats.hpRegen! += slot.item.stats.hpRegen;
 
         let spd = slot.item.stats.attackSpeed || 0;
-        // Vespene gas blades have max glove effect built-in (+4.0 max speed)
         if (slot.item.category === 'blades' && slot.item.currency === 'vespene') {
           spd = Math.max(spd, 4.0);
         }
@@ -45,7 +70,7 @@ export function useInventory() {
           spd = Math.max(spd, slot.item.stats.attackSpeed);
         }
 
-        // Attack speed does not stack; only the MAX item is counted ONCE
+        // Attack speed does not stack; take maximum item speed once
         if (spd > maxAttackSpeed) {
           maxAttackSpeed = spd;
         }
@@ -62,6 +87,7 @@ export function useInventory() {
     return stats;
   });
 
+  /** Equip an item into a specific slot index */
   function equipItem(item: Item, slotIndex: number): boolean {
     if (slotIndex < 0 || slotIndex >= slots.value.length) return false;
     slots.value[slotIndex].category = item.category;
@@ -69,6 +95,7 @@ export function useInventory() {
     return true;
   }
 
+  /** Unequip and remove item from a specific slot index */
   function unequipItem(slotIndex: number): Item | null {
     if (slotIndex < 0 || slotIndex >= slots.value.length) return null;
     const item = slots.value[slotIndex].item;
@@ -76,6 +103,7 @@ export function useInventory() {
     return item;
   }
 
+  /** Load saved inventory slots */
   function loadInventory(savedSlots: any[]) {
     if (savedSlots && Array.isArray(savedSlots) && savedSlots.length === 6) {
       slots.value = savedSlots.map((s, idx) => ({

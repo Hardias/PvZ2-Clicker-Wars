@@ -9,4 +9,5 @@ export interface ZealotStats {
   vespeneGas: number; // Vespene Gas (V)
   emergencyTeleports: number; // starts at 2
   deaths: number; // death counter
+  isImmobilized: boolean;
 }
