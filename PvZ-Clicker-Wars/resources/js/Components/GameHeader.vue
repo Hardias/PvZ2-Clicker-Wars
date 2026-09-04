@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { formatNumber } from '../utils/format';
 
 interface Props {
@@ -6,6 +7,10 @@ interface Props {
   vespeneGas: number;
   currentView: 'battle' | 'shop';
   autosaveEnabled: boolean;
+  musicVolume: number;
+  sfxVolume: number;
+  musicMuted: boolean;
+  sfxMuted: boolean;
 }
 
 defineProps<Props>();
@@ -15,7 +20,13 @@ const emit = defineEmits<{
   (e: 'load'): void;
   (e: 'reset'): void;
   (e: 'toggleAutosave'): void;
+  (e: 'toggleMusicMute'): void;
+  (e: 'toggleSfxMute'): void;
+  (e: 'setMusicVolume', value: number): void;
+  (e: 'setSfxVolume', value: number): void;
 }>();
+
+const showAudioPanel = ref(false);
 </script>
 
 <template>
@@ -60,6 +71,83 @@ const emit = defineEmits<{
         </button>
       </div>
 
+      <!-- Audio Controls -->
+      <div class="relative">
+        <button
+          @click="showAudioPanel = !showAudioPanel"
+          class="bg-gray-800 hover:bg-gray-700 px-2.5 py-1.5 rounded text-xs font-bold border border-purple-700/50 flex items-center space-x-1 transition-all"
+          :class="(!musicMuted || !sfxMuted) ? 'text-purple-300' : 'text-gray-500'"
+          title="Audio Settings"
+        >
+          <span v-if="!musicMuted || !sfxMuted">🔊</span>
+          <span v-else>🔇</span>
+          <span>AUDIO</span>
+        </button>
+
+        <!-- Audio Panel Dropdown -->
+        <Transition
+          enter-active-class="transition ease-out duration-150"
+          enter-from-class="opacity-0 scale-95 -translate-y-1"
+          enter-to-class="opacity-100 scale-100 translate-y-0"
+          leave-active-class="transition ease-in duration-100"
+          leave-from-class="opacity-100 scale-100 translate-y-0"
+          leave-to-class="opacity-0 scale-95 -translate-y-1"
+        >
+          <div
+            v-if="showAudioPanel"
+            class="absolute right-0 top-full mt-2 bg-gray-900 border border-purple-500/40 rounded-lg p-4 shadow-2xl shadow-purple-900/50 z-50 w-64"
+          >
+            <!-- Music Volume -->
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Music</span>
+                <button
+                  @click="emit('toggleMusicMute')"
+                  class="text-sm px-1.5 py-0.5 rounded border transition-all"
+                  :class="musicMuted ? 'bg-red-950/60 text-red-400 border-red-700' : 'bg-green-950/60 text-green-400 border-green-700'"
+                >
+                  {{ musicMuted ? '🔇' : '🔊' }}
+                </button>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                :value="musicVolume * 100"
+                @input="emit('setMusicVolume', Number(($event.target as HTMLInputElement).value) / 100)"
+                class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-purple-500 bg-gray-700"
+                :disabled="musicMuted"
+              />
+              <div class="text-right text-[9px] text-gray-500 mt-0.5">{{ Math.round(musicVolume * 100) }}%</div>
+            </div>
+
+            <!-- SFX Volume -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">SFX</span>
+                <button
+                  @click="emit('toggleSfxMute')"
+                  class="text-sm px-1.5 py-0.5 rounded border transition-all"
+                  :class="sfxMuted ? 'bg-red-950/60 text-red-400 border-red-700' : 'bg-green-950/60 text-green-400 border-green-700'"
+                >
+                  {{ sfxMuted ? '🔇' : '🔊' }}
+                </button>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                :value="sfxVolume * 100"
+                @input="emit('setSfxVolume', Number(($event.target as HTMLInputElement).value) / 100)"
+                class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-purple-500 bg-gray-700"
+                :disabled="sfxMuted"
+              />
+              <div class="text-right text-[9px] text-gray-500 mt-0.5">{{ Math.round(sfxVolume * 100) }}%</div>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
       <!-- Save / Load / Autosave Toggle / Reset Group -->
       <div class="flex flex-col space-y-1.5 items-end">
         <div class="flex space-x-2">
@@ -90,4 +178,34 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #a855f7;
+  cursor: pointer;
+  border: 2px solid #7c3aed;
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.5);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #a855f7;
+  cursor: pointer;
+  border: 2px solid #7c3aed;
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.5);
+}
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: #4b5563;
+  border-color: #374151;
+  box-shadow: none;
+}
+input[type="range"]:disabled::-moz-range-thumb {
+  background: #4b5563;
+  border-color: #374151;
+  box-shadow: none;
+}
 </style>

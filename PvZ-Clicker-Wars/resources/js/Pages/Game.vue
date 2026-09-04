@@ -4,9 +4,11 @@ import { useInventory } from '../composables/useInventory';
 import { useZealot } from '../composables/useZealot';
 import { useCombat } from '../composables/useCombat';
 import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
+import { useAudio } from '../composables/useAudio';
 import { Item } from '../types/Item';
 
 import GameHeader from '../Components/GameHeader.vue';
+import AudioVisualizer from '../Components/AudioVisualizer.vue';
 import ZealotStatsComponent from '../Components/ZealotStatsComponent.vue';
 import InventoryGrid from '../Components/InventoryGrid.vue';
 import BattleArea from '../Components/BattleArea.vue';
@@ -31,8 +33,9 @@ function toggleAutosave() {
 // Composables setup
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
 const { state: zealotState, maxHp, attackPower, attackSpeed, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
-const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather } = useCombat();
+const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase } = useCombat();
 const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame } = useSaveSystem(zealotState, slots, probeBase);
+const audio = useAudio();
 
 const showShopModal = ref(false);
 const showSaveModal = ref(false);
@@ -79,6 +82,7 @@ function handleOpenLoadModal() {
 
 function handleSaveSlot(slot: 'A' | 'B' | 'C') {
   saveToSlot(slot);
+  audio.playSfx('save');
   showSaveModal.value = false;
   showSaveNotification(`Game succesvol opgeslagen in Slot ${slot}!`);
 }
@@ -118,31 +122,11 @@ function handleReset() {
     category: 'blades',
     item: null,
   }));
-  probeBase.value = {
-    rankIndex: 0,
-    rankName: 'D-',
-    probeKills: 0,
-    upgradeCount: 0,
-    timeUntilUpgrade: 45,
-    maxUpgradeTime: 45,
-    wall: {
-      tier: 'wall',
-      level: 1,
-      maxHp: 200,
-      currentHp: 200,
-      defense: 2,
-    },
-    turret: { count: 8, level: 1, attackPower: 40 },
-    ability: 'chrono',
-    abilityCooldown: 40,
-    abilityActiveTimer: 0,
-    hasStartedCombat: false,
-    isRare: false,
-    rareType: null,
-    isClanned: false,
-  };
+  probeBase.value = createProbeBase(0, null);
+  audio.stopMusic();
+  audio.playMenuMusic();
   stopCombat(zealotState.value);
-  showSaveNotification('Spel is gereset naar een verse start (Save slots behouden)!');
+  showSaveNotification('Spel is gereset naar de absolute begintoestand!');
 }
 
 // Unequip item and refund full cost
@@ -162,6 +146,7 @@ function handleUnequip(slotIndex: number) {
 // Stop turrets and open shop modal when going to shop
 watch(currentView, (newView) => {
   if (newView === 'shop') {
+    audio.playSfx('shopOpen');
     stopCombat(zealotState.value);
     showShopModal.value = true;
   } else {
@@ -250,8 +235,10 @@ function performAttack() {
   if (zealotState.value.isImmobilized) return;
   const dmg = attackPower.value;
   gainMinerals(Math.floor(dmg));
+  audio.playSfx('wallHit');
   const res = damageWall(dmg, zealotState.value);
   if (res.destroyed) {
+    audio.playSfx('wallDestroy');
     if (autosaveEnabled.value) autoSave();
   }
 }
@@ -260,6 +247,7 @@ function performAttack() {
 function handleAttack() {
   if (zealotState.value.isImmobilized) return;
   recordClick();
+  audio.playSfx('attack');
   performAttack();
 }
 
@@ -267,6 +255,7 @@ function handleAttack() {
 function buyItem(item: Item, slotIndex: number) {
   if (spendCurrency(item.cost, item.currency || 'minerals')) {
     equipItem(item, slotIndex);
+    audio.playSfx('shopBuy');
     if (autosaveEnabled.value) autoSave();
     showSaveNotification(`Item ${item.name} gekocht en uitgerust!`);
   }
@@ -292,6 +281,15 @@ onMounted(() => {
     if (saved.inventory) loadInventory(saved.inventory);
     if (saved.probeBase) loadCombatState(saved.probeBase);
   }
+
+  // Init audio on first user interaction (browser autoplay policy)
+  const initAudioOnce = () => {
+    audio.initOnInteraction();
+    document.removeEventListener('click', initAudioOnce);
+    document.removeEventListener('keydown', initAudioOnce);
+  };
+  document.addEventListener('click', initAudioOnce, { once: true });
+  document.addEventListener('keydown', initAudioOnce, { once: true });
 
   // Reliable Auto-Attack Interval when gloves / vespene blade equipped
   let lastAtkTime = Date.now();
@@ -330,14 +328,19 @@ onMounted(() => {
       if (totalTurretDps.value > 0 && !isTrainingBlocked) {
         const damageThisTick = totalTurretDps.value / 10;
         takeDamage(damageThisTick);
+        if (Math.floor(damageThisTick) > 0) {
+          audio.playSfx('turretHit');
+        }
         if (zealotState.value.hp <= 0) {
           const teleported = useEmergencyTeleport();
           if (teleported) {
+            audio.playSfx('teleport');
             stopCombat(zealotState.value);
             currentView.value = 'shop';
             if (autosaveEnabled.value) autoSave();
             alert(`⚠️ EMERGENCY TELEPORT ACTIVATED! (${zealotState.value.emergencyTeleports} remaining) You warped back to the Zealot Shop!`);
           } else {
+            audio.playSfx('death');
             stopCombat(zealotState.value);
             alert('💀 ZEALOT IS GESNEUVELD IN GEVECHT! Geen emergency teleports meer over. Harde reset van de sessie...');
             handleReset();
@@ -376,21 +379,42 @@ onUnmounted(() => {
   if (autosaveEnabled.value) {
     autoSave();
   }
+  audio.stopMusic();
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-950 text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black">
+  <div class="min-h-screen text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black">
+    <!-- Solid background layer -->
+    <div class="fixed inset-0 bg-gray-950" style="z-index: 0;"></div>
+
+    <!-- Audio Equalizer Visualizer (above background, below content) -->
+    <AudioVisualizer
+      :get-frequency-data="audio.getFrequencyData"
+      :active="!audio.musicMuted.value && audio.isPlaying.value"
+    />
+
+    <!-- Content layer -->
+    <div class="relative flex-1 flex flex-col" style="z-index: 10;">
+
     <!-- Top Game Header -->
     <GameHeader 
       :minerals="zealotState.minerals" 
       :vespeneGas="zealotState.vespeneGas"
       v-model:currentView="currentView"
       :autosaveEnabled="autosaveEnabled"
+      :musicVolume="audio.musicVolume.value"
+      :sfxVolume="audio.sfxVolume.value"
+      :musicMuted="audio.musicMuted.value"
+      :sfxMuted="audio.sfxMuted.value"
       @save="handleOpenSaveModal"
       @load="handleOpenLoadModal"
       @reset="handleReset"
       @toggleAutosave="toggleAutosave"
+      @toggleMusicMute="audio.toggleMusicMute"
+      @toggleSfxMute="audio.toggleSfxMute"
+      @setMusicVolume="audio.setMusicVolume"
+      @setSfxVolume="audio.setSfxVolume"
     />
 
     <!-- Main Content Layout: Left (Stats), Center (Battle/Shop), Right (Equipment 6 flexible slots) -->
@@ -470,6 +494,7 @@ onUnmounted(() => {
       @loadSlot="handleLoadSlot"
       @close="showLoadModal = false"
     />
+    </div> <!-- end content layer -->
 
     <!-- TIJDELIJKE DISABLE PATHER (Toggle button, bottom right) -->
     <button 

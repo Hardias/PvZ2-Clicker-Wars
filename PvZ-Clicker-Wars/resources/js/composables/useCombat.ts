@@ -253,6 +253,30 @@ export function useCombat() {
     }
   }
 
+  /** Get next wall tier and level in progression: Wall 1-5 -> Ultra 1-5 -> Mega 1-5 -> Power 1-2 -> Final */
+  function getNextWallTierAndLevel(tier: WallTier, level: number): { tier: WallTier; level: number } {
+    if (tier === 'wall') {
+      if (level < 5) return { tier: 'wall', level: level + 1 };
+      return { tier: 'ultra', level: 1 };
+    }
+    if (tier === 'ultra') {
+      if (level < 5) return { tier: 'ultra', level: level + 1 };
+      return { tier: 'mega', level: 1 };
+    }
+    if (tier === 'mega') {
+      if (level < 5) return { tier: 'mega', level: level + 1 };
+      return { tier: 'power', level: 1 };
+    }
+    if (tier === 'power') {
+      if (level < 2) return { tier: 'power', level: level + 1 };
+      return { tier: 'final', level: 1 };
+    }
+    if (tier === 'final') {
+      return { tier: 'final', level: 1 };
+    }
+    return { tier, level };
+  }
+
   // Total turret DPS active against the zealot during combat
   const totalTurretDps = computed(() => {
     if (!isEngagedInCombat.value) return 0;
@@ -408,24 +432,14 @@ export function useCombat() {
     }
 
     const wall = { ...base.wall };
-    const maxLvl = getMaxLevelForTier(wall.tier);
-
-    if (wall.level < maxLvl) {
-      wall.level += 1;
-      wall.maxHp = Math.floor(wall.maxHp * 1.5);
-      wall.currentHp = wall.maxHp;
-      wall.defense += 3;
-    } else {
-      const currentTierIndex = wallOrder.indexOf(wall.tier);
-      if (currentTierIndex < wallOrder.length - 1) {
-        const nextTier = wallOrder[currentTierIndex + 1];
-        wall.tier = nextTier;
-        wall.level = 1;
-        wall.maxHp = Math.floor(wall.maxHp * 2.0);
-        wall.currentHp = wall.maxHp;
-        wall.defense += 8;
-      }
-    }
+    const nextWall = getNextWallTierAndLevel(wall.tier, wall.level);
+    const tierChanged = wall.tier !== nextWall.tier;
+    
+    wall.tier = nextWall.tier;
+    wall.level = nextWall.level;
+    wall.maxHp = Math.floor(wall.maxHp * (tierChanged ? 2.0 : 1.5));
+    wall.currentHp = wall.maxHp;
+    wall.defense += tierChanged ? 8 : 3;
 
     const nextTurretLevel = base.turret.level + 1;
     const turret = getTurretInfo(nextTurretLevel, base.rareType === 'goldBaser');
@@ -479,6 +493,13 @@ export function useCombat() {
     }
 
     const newProbe = createProbeBase(nextRankIndex);
+    if (base.wall.tier === 'final') {
+      const newWallHp = Math.floor(base.wall.maxHp * 1.5);
+      newProbe.wall.maxHp = newWallHp;
+      newProbe.wall.currentHp = newWallHp;
+      newProbe.wall.tier = 'wall';
+      newProbe.wall.level = 1;
+    }
     newProbe.probeKills = probeKills;
     newProbe.hasStartedCombat = true;
 
@@ -612,5 +633,6 @@ export function useCombat() {
     stopCombat,
     loadCombatState,
     rerollIfPather,
+    createProbeBase,
   };
 }

@@ -170,7 +170,7 @@ function formatTimer(value: number): string {
         <div class="w-full bg-gray-900 p-4 rounded-lg border border-cyan-800/40 mb-3">
           <div class="flex justify-between text-xs mb-1.5 font-bold uppercase tracking-wider">
             <span class="text-cyan-400">
-              {{ wallDisplayName }} (Lv. {{ probeBase.wall.level }})
+              {{ wallDisplayName }} <span v-if="probeBase.wall.tier !== 'pather' && probeBase.wall.tier !== 'final'">(Lv. {{ probeBase.wall.level }})</span>
             </span>
             <span class="font-mono">{{ formatNumber(probeBase.wall.currentHp) }} / {{ formatNumber(probeBase.wall.maxHp) }}</span>
           </div>
@@ -190,7 +190,7 @@ function formatTimer(value: number): string {
           </div>
         </div>
         <div v-else class="w-full bg-gray-900/80 px-4 py-2.5 rounded-lg border border-gray-800 flex justify-between items-center text-xs text-gray-500">
-          <span>🛡️ No Turrets (Pather Unit)</span>
+          <span>🛡️ No Turrets ({{ probeBase.rareType === 'trainingProbe' ? 'Training Unit' : 'Pather Unit' }})</span>
         </div>
 
         <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
