@@ -67,9 +67,9 @@ const abilityDescription = computed(() => {
     return 'Training Void Prism (Active reflexes)';
   }
   if (props.probeBase.ability === 'chrono') {
-    return '20% snellere upgrade timer (10s duur, 40s cooldown)';
+    return '20% faster upgrade timer (10s duration, 40s cooldown)';
   }
-  return 'Immobiliseert Zealot voor 4s (45s cooldown)';
+  return 'Immobilizes Zealot for 4s (45s cooldown)';
 });
 
 const isSs = computed(() => isSsRank(props.probeBase.rankIndex));
@@ -118,7 +118,7 @@ function formatTimer(value: number): string {
       class="w-full my-1.5 bg-gradient-to-r from-amber-950 via-yellow-950 to-amber-950 border border-amber-400/70 rounded-lg py-1.5 px-3 text-center text-amber-200 font-bold text-xs shadow-lg transition-opacity select-none"
       :class="isSs ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
     >
-      ⚡ SS ELITE PROBE — GOLDEN AURA (wall regen, elite abilities, trage upgrades) ⚡
+      ⚡ SS ELITE PROBE — GOLDEN AURA (wall regen, elite abilities, slow upgrades) ⚡
     </div>
 
     <!-- Rare Probe Banner (Always takes up layout space, invisible when inactive) -->
@@ -145,7 +145,7 @@ function formatTimer(value: number): string {
           <div>
             <div class="text-sm font-bold text-cyan-300">Probe Command (Rank <span :class="isSs ? 'text-amber-300' : ''">{{ probeBase.rankName }}</span>)</div>
             <div class="text-xs text-gray-400">
-              {{ isImmobilized ? '⚠️ ZEALOT IMMOBILISEERD DOOR VOID PRISM!' : `Klik om muur aan te vallen! (-${formatNumber(attackPower)} DMG)` }}
+              {{ isImmobilized ? '⚠️ ZEALOT IMMOBILIZED BY VOID PRISM!' : `Click to attack the wall! (-${formatNumber(attackPower)} DMG)` }}
             </div>
           </div>
         </div>
@@ -156,7 +156,7 @@ function formatTimer(value: number): string {
             <span>ABILITY: {{ abilityName.toUpperCase() }}</span>
             <span class="font-mono">
               <span v-if="probeBase.abilityActiveTimer > 0" class="text-amber-400 animate-pulse">
-                ACTIEF ({{ formatTimer(probeBase.abilityActiveTimer) }})
+                ACTIVE ({{ formatTimer(probeBase.abilityActiveTimer) }})
               </span>
               <span v-else class="text-gray-400">
                 CD: {{ formatTimer(probeBase.abilityCooldown) }}
@@ -169,7 +169,7 @@ function formatTimer(value: number): string {
         <!-- Upgrade Timer / Progress Bar -->
         <div class="w-full mb-3 bg-gray-900 px-3 py-2 rounded border border-amber-900/40">
           <div class="flex justify-between text-[10px] text-amber-300 mb-1 font-bold">
-            <span>PROBES UPGRADING DEFENSES {{ !probeBase.hasStartedCombat ? '(GEPAUSEERD)' : (probeBase.ability === 'chrono' && probeBase.abilityActiveTimer > 0 ? '(+20% SNELHEID)' : '') }}</span>
+            <span>PROBES UPGRADING DEFENSES {{ !probeBase.hasStartedCombat ? '(PAUSED)' : (probeBase.ability === 'chrono' && probeBase.abilityActiveTimer > 0 ? '(+20% SPEED)' : '') }}</span>
             <span class="font-mono">{{ formatTimer(probeBase.timeUntilUpgrade) }}</span>
           </div>
           <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-amber-700/40">
@@ -182,7 +182,7 @@ function formatTimer(value: number): string {
           <span class="text-[10px] bg-red-950/80 text-red-300 px-2.5 py-0.5 rounded-full border border-red-700/50 animate-pulse transition-opacity duration-200"
             :class="probeBase.wall.currentHp < probeBase.wall.maxHp ? 'opacity-100 visible' : 'opacity-0 invisible'"
           >
-            ⚡ {{ isSs ? 'SS GOLDEN AURA' : 'PROBES AUTO-REPARATIE' }} ({{ isSs ? '25% + 2%' : (probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%')) }} HP/s) ⚡
+            ⚡ {{ isSs ? 'SS GOLDEN AURA' : 'PROBES AUTO-REPAIR' }} ({{ isSs ? '25% + 2%' : (probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%')) }} HP/s) ⚡
           </span>
         </div>
 
@@ -214,14 +214,14 @@ function formatTimer(value: number): string {
         </div>
 
         <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
-          {{ isImmobilized ? '🛑 ZEALOT KAN NIET AANVALLEN TIJDENS IMMOBILISATIE! 🛑' : '⚡ KLIK HIER OM DE MUUR AAN TE VALLEN ⚡' }}
+          {{ isImmobilized ? '🛑 ZEALOT CANNOT ATTACK WHILE IMMOBILIZED! 🛑' : '⚡ CLICK HERE TO ATTACK THE WALL ⚡' }}
         </div>
       </div>
     </div>
 
     <!-- Quick controls hint -->
     <div class="text-xs text-gray-500 text-center">
-      Versla de Probe Wall om de verdedigende Probe te vernietigen, Probe Rank te verhogen en beloningen te claimen!
+      Defeat the Probe Wall to destroy the defending Probe, raise Probe Rank, and claim rewards!
     </div>
   </div>
 </template>

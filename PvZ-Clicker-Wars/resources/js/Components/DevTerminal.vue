@@ -119,7 +119,7 @@ function handleSubmit() {
     <!-- Terminal Header Bar -->
     <div class="flex justify-between items-center bg-gray-900 border-b border-green-800 px-3 py-1.5">
       <span class="text-[10px] font-bold text-green-500 tracking-widest uppercase">DEV TERMINAL</span>
-      <button @click="emit('close')" class="text-green-400 hover:text-red-400 text-xs font-bold px-1.5 cursor-pointer" title="Sluit terminal">
+      <button @click="emit('close')" class="text-green-400 hover:text-red-400 text-xs font-bold px-1.5 cursor-pointer" title="Close terminal">
         [ X ]
       </button>
     </div>

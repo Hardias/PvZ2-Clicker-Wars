@@ -13,8 +13,8 @@ const emit = defineEmits<{
 }>();
 
 function formatDate(timestamp: number | null): string {
-  if (!timestamp) return 'Nog nooit gesaved';
-  return new Date(timestamp).toLocaleString('nl-NL', {
+  if (!timestamp) return 'Never saved';
+  return new Date(timestamp).toLocaleString('en-GB', {
     dateStyle: 'medium',
     timeStyle: 'medium',
   });
@@ -28,7 +28,7 @@ function formatDate(timestamp: number | null): string {
       <div class="flex justify-between items-center border-b border-cyan-800/60 pb-3">
         <h2 class="text-xl font-bold tracking-wider text-amber-400 flex items-center space-x-2">
           <span>📂</span>
-          <span>SPEL LADEN (LOAD)</span>
+          <span>LOAD GAME</span>
         </h2>
         <button 
           @click="emit('close')"
@@ -39,7 +39,7 @@ function formatDate(timestamp: number | null): string {
       </div>
 
       <p class="text-xs text-gray-300">
-        Kies een save slot of de autosave om te laden:
+        Choose a save slot or the autosave to load:
       </p>
 
       <div class="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
@@ -51,16 +51,16 @@ function formatDate(timestamp: number | null): string {
           :class="mostRecentSlot === 'autosave' ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-purple-800/60 hover:border-purple-400'"
         >
           <div v-if="mostRecentSlot === 'autosave'" class="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-bl">
-            ⭐ MEEST RECENTE SAVE
+            ⭐ MOST RECENT SAVE
           </div>
           <div class="flex justify-between items-center font-bold text-purple-300 group-hover:text-purple-200">
-            <span>AUTOSAVE SLOT (Alleen laden)</span>
-            <span class="text-xs text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-700/50">Laden</span>
+            <span>AUTOSAVE SLOT (Load only)</span>
+            <span class="text-xs text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-700/50">Load</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.autosave.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.autosave.updatedAt) }}</strong>
           </span>
-          <span v-if="!slotMetadata.autosave.exists" class="text-[10px] text-red-400 italic">Geen autosave beschikbaar</span>
+          <span v-if="!slotMetadata.autosave.exists" class="text-[10px] text-red-400 italic">No autosave available</span>
         </button>
 
         <!-- Slot A -->
@@ -70,16 +70,16 @@ function formatDate(timestamp: number | null): string {
           :class="mostRecentSlot === 'A' ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-cyan-700/50 hover:border-cyan-400'"
         >
           <div v-if="mostRecentSlot === 'A'" class="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-bl">
-            ⭐ MEEST RECENTE SAVE
+            ⭐ MOST RECENT SAVE
           </div>
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT A</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Laden</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Load</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.A.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.A.updatedAt) }}</strong>
           </span>
-          <span v-if="!slotMetadata.A.exists" class="text-[10px] text-red-400 italic">Slot is leeg</span>
+          <span v-if="!slotMetadata.A.exists" class="text-[10px] text-red-400 italic">Slot is empty</span>
         </button>
 
         <!-- Slot B -->
@@ -89,16 +89,16 @@ function formatDate(timestamp: number | null): string {
           :class="mostRecentSlot === 'B' ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-cyan-700/50 hover:border-cyan-400'"
         >
           <div v-if="mostRecentSlot === 'B'" class="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-bl">
-            ⭐ MEEST RECENTE SAVE
+            ⭐ MOST RECENT SAVE
           </div>
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT B</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Laden</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Load</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.B.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.B.updatedAt) }}</strong>
           </span>
-          <span v-if="!slotMetadata.B.exists" class="text-[10px] text-red-400 italic">Slot is leeg</span>
+          <span v-if="!slotMetadata.B.exists" class="text-[10px] text-red-400 italic">Slot is empty</span>
         </button>
 
         <!-- Slot C -->
@@ -108,16 +108,16 @@ function formatDate(timestamp: number | null): string {
           :class="mostRecentSlot === 'C' ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-cyan-700/50 hover:border-cyan-400'"
         >
           <div v-if="mostRecentSlot === 'C'" class="absolute top-0 right-0 bg-amber-500 text-black text-[9px] font-extrabold px-2 py-0.5 rounded-bl">
-            ⭐ MEEST RECENTE SAVE
+            ⭐ MOST RECENT SAVE
           </div>
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT C</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Laden</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Load</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.C.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.C.updatedAt) }}</strong>
           </span>
-          <span v-if="!slotMetadata.C.exists" class="text-[10px] text-red-400 italic">Slot is leeg</span>
+          <span v-if="!slotMetadata.C.exists" class="text-[10px] text-red-400 italic">Slot is empty</span>
         </button>
 
       </div>
@@ -127,7 +127,7 @@ function formatDate(timestamp: number | null): string {
           @click="emit('close')"
           class="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold px-4 py-2 rounded text-xs transition-colors"
         >
-          Annuleren
+          Cancel
         </button>
       </div>
 

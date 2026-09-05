@@ -28,6 +28,7 @@ const emit = defineEmits<{
   (e: 'setMusicVolume', value: number): void;
   (e: 'setSfxVolume', value: number): void;
   (e: 'nextTrack'): void;
+  (e: 'openTutorial'): void;
 }>();
 
 const showAudioPanel = ref(false);
@@ -170,6 +171,10 @@ const showAudioPanel = ref(false);
       <!-- Save / Load / Autosave Toggle / Reset Group -->
       <div class="flex flex-col space-y-1.5 items-end">
         <div class="flex space-x-2">
+          <button @click="emit('openTutorial')" class="bg-gray-800 hover:bg-gray-700 text-amber-300 px-3 py-1.5 rounded text-xs font-bold border border-amber-700/50 flex items-center space-x-1" title="Show the tutorial again">
+            <span>📖</span>
+            <span>HELP</span>
+          </button>
           <button @click="emit('save')" class="bg-gray-800 hover:bg-gray-700 text-cyan-300 px-3 py-1.5 rounded text-xs font-bold border border-cyan-700/50 flex items-center space-x-1">
             <span>💾</span>
             <span>SAVE</span>
@@ -189,7 +194,7 @@ const showAudioPanel = ref(false);
           :class="autosaveEnabled ? 'bg-green-950/90 text-green-200 border-green-400 shadow-green-500/40' : 'bg-gray-900 text-gray-400 border-gray-700'"
         >
           <span class="w-2.5 h-2.5 rounded-full" :class="autosaveEnabled ? 'bg-green-400 shadow-[0_0_10px_#4ade80] animate-ping' : 'bg-gray-500'"></span>
-          <span>AUTO-SAVE: {{ autosaveEnabled ? 'AAN' : 'UIT' }}</span>
+          <span>AUTO-SAVE: {{ autosaveEnabled ? 'ON' : 'OFF' }}</span>
         </button>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { ref, computed } from 'vue';
 import { ProbeBase, Wall, WallTier, TurretInfo, RareProbeType } from '../types/ProbeBase';
 import { ZealotStats } from '../types/Zealot';
 import { getRankName, isSsRank, ssLevel, SS_START_INDEX } from '../utils/ranks';
-import { WALL_CYCLE_STEPS, WALL_LEVEL_GROWTH, WALL_TIER_GROWTH, WALL_CYCLE_BOUNDARY_GROWTH, SS_WALL_HP_PER_LEVEL, SS_DEFENSE_PER_LEVEL, SS_TURRET_POWER_PER_LEVEL, SS_TURRET_COUNT_PER_LEVEL, SS_REGEN_PER_SECOND } from '../utils/scaling';
+import { WALL_CYCLE_STEPS, WALL_LEVEL_GROWTH, WALL_TIER_GROWTH, WALL_CYCLE_BOUNDARY_GROWTH, WALL_FINAL_GROWTH_PER_CYCLE, SS_WALL_HP_PER_LEVEL, SS_DEFENSE_PER_LEVEL, SS_TURRET_POWER_PER_LEVEL, SS_TURRET_COUNT_PER_LEVEL, SS_REGEN_PER_SECOND } from '../utils/scaling';
 
 /**
  * Composable handling probe base combat, defenses, turret DPS, upgrade timers, and rare/clanned probe mechanics.
@@ -150,10 +150,19 @@ export function useCombat() {
     return wall;
   }
 
-  /** Turret level is also derived from the global upgrade counter (level = count + 1), with rare/clan modifiers */
+  /** Turret level is derived from the global upgrade counter (level = count + 1), with rare/clan modifiers.
+   *  The per-level ramp (20 * 1.35^(level-1)) is kept, but the total is multiplied by the same
+   *  WALL_FINAL_GROWTH_PER_CYCLE factor that walls and shop items use per completed wall cycle.
+   *  Cycle 0 behaves exactly as before; from cycle 1 onwards turret DPS tracks the wall / Zealot
+   *  scaling instead of exploding to Infinity (the old 20 * 1.35^count overflows to Infinity from
+   *  roughly count 2366 / rank S119, guaranteeing a one-tick death at S+/SS regardless of gear). */
   function buildTurret(count: number, rareType: RareProbeType, isClanned: boolean, rankIndex = 0): TurretInfo {
     const isGold = rareType === 'goldBaser';
-    const turret = getTurretInfo(count + 1, isGold);
+    const wallCycle = Math.floor(count / WALL_CYCLE_STEPS);
+    const level = (count % WALL_CYCLE_STEPS) + 1;
+    const cycleMultiplier = Math.pow(WALL_FINAL_GROWTH_PER_CYCLE, wallCycle);
+    const turret = getTurretInfo(level, isGold);
+    turret.attackPower = Math.floor(turret.attackPower * cycleMultiplier);
     if (rareType === 'doubleBaser' || rareType === 'goldBaser') {
       turret.attackPower = Math.floor(turret.attackPower * 1.5);
     } else if (rareType === 'tripleBaser') {

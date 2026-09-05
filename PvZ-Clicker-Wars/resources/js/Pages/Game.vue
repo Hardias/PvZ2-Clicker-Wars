@@ -17,6 +17,7 @@ import ShopModal from '../Components/ShopModal.vue';
 import SaveModal from '../Components/SaveModal.vue';
 import LoadModal from '../Components/LoadModal.vue';
 import DevTerminal from '../Components/DevTerminal.vue';
+import TutorialOverlay from '../Components/TutorialOverlay.vue';
 
 const currentView = ref<'battle' | 'shop'>('battle');
 const isAtShop = computed(() => currentView.value === 'shop');
@@ -29,7 +30,7 @@ watch(autosaveEnabled, (val) => {
 
 function toggleAutosave() {
   autosaveEnabled.value = !autosaveEnabled.value;
-  showSaveNotification(autosaveEnabled.value ? 'Auto-save ingeschakeld!' : 'Auto-save uitgeschakeld!');
+  showSaveNotification(autosaveEnabled.value ? 'Auto-save enabled!' : 'Auto-save disabled!');
 }
 
 // Composables setup
@@ -43,7 +44,8 @@ const showShopModal = ref(false);
 const showSaveModal = ref(false);
 const showLoadModal = ref(false);
 const showDevTerminal = ref(false);
-const saveNotificationText = ref('Game geladen!');
+const showTutorial = ref(false);
+const saveNotificationText = ref('Game loaded!');
 const autoSaveNotification = ref(false);
 let notificationTimeout: number | null = null;
 
@@ -55,7 +57,7 @@ function toggleDisablePather() {
   if (disablePather.value) {
     rerollIfPather();
   }
-  showSaveNotification(disablePather.value ? 'Pather probes uitgeschakeld (Reroll uitgevoerd)!' : 'Pather probes ingeschakeld!');
+  showSaveNotification(disablePather.value ? 'Pather probes disabled (Reroll executed)!' : 'Pather probes enabled!');
 }
 
 const slotMetadata = computed<Record<'A' | 'B' | 'C' | 'autosave', SlotMeta>>(() => {
@@ -66,7 +68,7 @@ const mostRecentSlot = computed(() => {
   return getMostRecentSlot();
 });
 
-function showSaveNotification(text = 'Game opgeslagen!') {
+function showSaveNotification(text = 'Game saved!') {
   saveNotificationText.value = text;
   autoSaveNotification.value = true;
   if (notificationTimeout) clearTimeout(notificationTimeout);
@@ -87,7 +89,7 @@ function handleSaveSlot(slot: 'A' | 'B' | 'C') {
   saveToSlot(slot);
   audio.playSfx('save');
   showSaveModal.value = false;
-  showSaveNotification(`Game succesvol opgeslagen in Slot ${slot}!`);
+  showSaveNotification(`Game saved successfully to Slot ${slot}!`);
 }
 
 function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
@@ -98,9 +100,9 @@ function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
     if (saved.probeBase) loadCombatState(saved.probeBase);
     showLoadModal.value = false;
     const slotName = slot === 'autosave' ? 'Autosave' : `Slot ${slot}`;
-    showSaveNotification(`Game geladen uit ${slotName}!`);
+    showSaveNotification(`Game loaded from ${slotName}!`);
   } else {
-    alert(`Save Slot ${slot === 'autosave' ? 'Autosave' : slot} is leeg en bevat geen opgeslagen game.`);
+    alert(`Save slot ${slot === 'autosave' ? 'Autosave' : slot} is empty and contains no saved game.`);
   }
 }
 
@@ -127,7 +129,7 @@ function handleReset() {
   }));
   probeBase.value = createProbeBase(0, null);
   stopCombat(zealotState.value);
-  showSaveNotification('Spel is gereset naar de absolute begintoestand!');
+  showSaveNotification('Game reset to the starting state!');
 }
 
 // Unequip item and refund full cost
@@ -140,7 +142,7 @@ function handleUnequip(slotIndex: number) {
       gainMinerals(item.cost);
     }
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification(`Item ${item.name} verkocht voor ${formatNumber(item.cost)}${item.currency === 'vespene' ? 'V' : 'M'}!`);
+    showSaveNotification(`Item ${item.name} sold for ${formatNumber(item.cost)}${item.currency === 'vespene' ? 'V' : 'M'}!`);
   }
 }
 
@@ -242,7 +244,7 @@ function handleShopUpgrade() {
   const newCycle = probeBase.value.wallCycle;
   probeBase.value = { ...probeBase.value, shopCycle: newCycle };
   if (autosaveEnabled.value) autoSave();
-  showSaveNotification(`Shop geüpgraded: alle items zijn nu ${getShopRankName(newCycle)} (${getShopMultiplierLabel(newCycle)})!`);
+  showSaveNotification(`Shop upgraded: all items are now ${getShopRankName(newCycle)} (${getShopMultiplierLabel(newCycle)})!`);
 }
 
 // DEV Terminal action handlers
@@ -251,7 +253,7 @@ const devActions = {
     zealotState.value.infiniteVespene = true;
     zealotState.value.vespeneGas += 500_000_000;
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification('∞ Vespene gas verleend (DEV)! Infinite!');
+    showSaveNotification('∞ Vespene gas granted (DEV)! Infinite!');
   },
   hardReset() {
     const minerals = zealotState.value.minerals;
@@ -276,13 +278,13 @@ const devActions = {
     probeBase.value = createProbeBase(0, null);
     stopCombat(zealotState.value);
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification('Wereld gereset (inventaris & resources behouden)!');
+    showSaveNotification('World reset (inventory & resources kept)!');
   },
   rankup(times: number) {
     const cycle = advanceWallCycles(times);
     probeBase.value = { ...probeBase.value, shopCycle: cycle };
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification(`Wall + shop opgegradeerd naar cyclus ${cycle + 1} (${getShopMultiplierLabel(cycle)})!`);
+    showSaveNotification(`Wall + shop upgraded to cycle ${cycle + 1} (${getShopMultiplierLabel(cycle)})!`);
   },
 };
 
@@ -323,14 +325,14 @@ function buyItem(item: Item, slotIndex: number) {
     equipItem(item, slotIndex);
     audio.playSfx('shopBuy');
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification(`Item ${item.name} gekocht en uitgerust!`);
+    showSaveNotification(`Item ${item.name} bought and equipped!`);
   }
 }
 
 function handleConvertMaxVespene() {
   if (convertMaxMineralsToVespene()) {
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification('Vespene gas geconverteerd en automatisch opgeslagen!');
+    showSaveNotification('Vespene gas converted and auto-saved!');
   }
 }
 
@@ -340,23 +342,7 @@ let slowTickInterval: number | null = null;
 let saveInterval: number | null = null;
 let autoAttackInterval: number | null = null;
 
-onMounted(() => {
-  const saved = loadLatestGame();
-  if (saved) {
-    if (saved.zealot) loadState(saved.zealot);
-    if (saved.inventory) loadInventory(saved.inventory);
-    if (saved.probeBase) loadCombatState(saved.probeBase);
-  }
-
-  // Init audio on first user interaction (browser autoplay policy)
-  const initAudioOnce = () => {
-    audio.initOnInteraction();
-    document.removeEventListener('click', initAudioOnce);
-    document.removeEventListener('keydown', initAudioOnce);
-  };
-  document.addEventListener('click', initAudioOnce, { once: true });
-  document.addEventListener('keydown', initAudioOnce, { once: true });
-
+function startGameLoops() {
   // Reliable Auto-Attack Interval when gloves / vespene blade equipped
   let lastAtkTime = Date.now();
   autoAttackInterval = window.setInterval(() => {
@@ -413,7 +399,7 @@ onMounted(() => {
           } else {
             audio.playSfx('death');
             stopCombat(zealotState.value);
-            alert('💀 ZEALOT IS GESNEUVELD IN GEVECHT! Geen emergency teleports meer over. Harde reset van de sessie...');
+            alert('💀 ZEALOT HAS FALLEN IN BATTLE! No emergency teleports remaining. Hard resetting session...');
             handleReset();
           }
         }
@@ -437,9 +423,53 @@ onMounted(() => {
   saveInterval = window.setInterval(() => {
     if (autosaveEnabled.value) {
       autoSave();
-      showSaveNotification('Autosave bijgewerkt!');
+      showSaveNotification('Autosave updated!');
     }
   }, 120000);
+}
+
+function handleTutorialComplete() {
+  localStorage.setItem('pvz2_tutorial_completed', 'true');
+  showTutorial.value = false;
+  startGameLoops();
+}
+
+function handleOpenTutorial() {
+  showTutorial.value = true;
+}
+
+function handleTutorialClose() {
+  showTutorial.value = false;
+  // If this was a new game (loops never started), start them now to not soft-lock the player
+  if (!fastTickInterval && !slowTickInterval && !autoAttackInterval) {
+    startGameLoops();
+  }
+}
+
+onMounted(() => {
+  const saved = loadLatestGame();
+  if (saved) {
+    if (saved.zealot) loadState(saved.zealot);
+    if (saved.inventory) loadInventory(saved.inventory);
+    if (saved.probeBase) loadCombatState(saved.probeBase);
+  }
+
+  // Init audio on first user interaction (browser autoplay policy)
+  const initAudioOnce = () => {
+    audio.initOnInteraction();
+    document.removeEventListener('click', initAudioOnce);
+    document.removeEventListener('keydown', initAudioOnce);
+  };
+  document.addEventListener('click', initAudioOnce, { once: true });
+  document.addEventListener('keydown', initAudioOnce, { once: true });
+
+  // New player detection: no save exists + tutorial never completed -> start paused with tutorial
+  const tutorialCompleted = localStorage.getItem('pvz2_tutorial_completed') === 'true';
+  if (!saved && !tutorialCompleted) {
+    showTutorial.value = true;
+  } else {
+    startGameLoops();
+  }
 });
 
 onUnmounted(() => {
@@ -490,6 +520,7 @@ onUnmounted(() => {
       @setMusicVolume="audio.setMusicVolume"
       @setSfxVolume="audio.setSfxVolume"
       @nextTrack="audio.nextTrack"
+      @openTutorial="handleOpenTutorial"
     />
 
     <!-- Main Content Layout: Left (Stats), Center (Battle/Shop), Right (Equipment 6 flexible slots) -->
@@ -574,9 +605,16 @@ onUnmounted(() => {
       @loadSlot="handleLoadSlot"
       @close="showLoadModal = false"
     />
+
+    <!-- Tutorial Overlay (first-time players & reopened via header Help button) -->
+    <TutorialOverlay
+      v-if="showTutorial"
+      @complete="handleTutorialComplete"
+      @close="handleTutorialClose"
+    />
     </div> <!-- end content layer -->
 
-    <!-- TIJDELIJKE DISABLE PATHER (Toggle button, bottom right) -->
+    <!-- TEMPORARY DISABLE PATHER (Toggle button, bottom right) -->
     <button 
       @click="toggleDisablePather"
       class="fixed bottom-4 right-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all"
@@ -584,14 +622,14 @@ onUnmounted(() => {
       title="Toggle disable Pather probes (Rerolls if active)"
     >
       <span>🐍</span>
-      <span>PATHER: {{ disablePather ? 'UIT (Reroll)' : 'AAN' }}</span>
+      <span>PATHER: {{ disablePather ? 'OFF (Reroll)' : 'ON' }}</span>
     </button>
 
     <!-- DEV Tools Terminal (Toggle button, bottom left) -->
     <button
       @click="showDevTerminal = !showDevTerminal"
       class="fixed bottom-4 left-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all bg-black text-green-400 border-green-700 hover:bg-gray-900"
-      title="DEV Tools (geheime terminal)"
+      title="DEV Tools (secret terminal)"
     >
       <span>⚙️</span>
       <span>DEV Tools</span>

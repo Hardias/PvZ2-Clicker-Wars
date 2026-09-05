@@ -96,13 +96,17 @@ export function useAudio() {
   }
 
   // ─── Procedural Multi-Track Music Engine ──────────────────────────
-  // 4 selectable procedural tracks (Web Audio, no assets):
+  // 5 selectable procedural tracks (Web Audio, no assets):
   //   Industrial  — Duke3D-style industrial (E minor, 140 BPM)
   //   Fatality    — Mortal Kombat-inspired dark tribal (A riff, 132 BPM)
   //   Rip & Tear  — Doom-inspired aggro riffing (F minor, 180 BPM)
   //   Void Prism  — eerie Protoss void ambience (A minor, 102 BPM)
   //   Hell March  — Red Alert 2 Klepacki march (D Phrygian, 124 BPM)
-  // Each track is an 8th-note step-sequencer rotating through sections.
+  //   Iron March  — Hell March essence overdriven (150 BPM, neuro bass, 2:11)
+  // Each track is an 8th-note step-sequencer that follows either a fixed
+  // timeline (track.timeline) or a random section rotation.
+  // Iron March uses the timeline + neuro wobble bass; the rest keep doing
+  // the original random section rotation.
 
   const NOTE = {
     D1: 36.71, E1: 41.20, F1: 43.65, G1: 49.00,
@@ -131,6 +135,16 @@ export function useAudio() {
     fStart: number;
     fEnd: number;
     q: number;
+  }
+
+  interface TrackNeuro {
+    gain: number;
+    fStart: number;
+    fEnd: number;
+    q: number;
+    detune: number;
+    lfoDepth: number;
+    lfoRate: number;
   }
 
   interface TrackStab {
@@ -187,11 +201,13 @@ export function useAudio() {
     altLoops: { min: number; max: number };
     drums: TrackDrums;
     bass: TrackBass;
+    neuBass?: TrackNeuro;
     stab: TrackStab;
     chug: TrackChug;
     tom: TrackTom;
     crash: TrackCrash;
     sections: TrackSection[];
+    timeline?: { section: number; loops: number }[];
   }
 
   let beatTimer: number | null = null;
@@ -200,6 +216,7 @@ export function useAudio() {
   let sectionStepsLeft = 1;
   let songCtx: AudioContext | null = null;
   let songDest: GainNode | null = null;
+  let timelinePos = 0;
 
   function loadTrackIndex(): number {
     const raw = localStorage.getItem('pvz2_music_track');
@@ -349,6 +366,63 @@ export function useAudio() {
     g.connect(dest);
     osc.start(time);
     osc.stop(time + dur + 0.01);
+  }
+
+  // "Neuro bass" voice — tempo-synced wobble supersaw for active dubstep basslines:
+  // 3 detuned saws → distortion → lowpass whose cutoff is wobbled by an LFO at
+  // 16th-note pace, so even a single 8th-note pumps like a machine.
+  function playNeuroBass(audio: AudioContext, dest: GainNode, time: number, freq: number, dur: number, n: TrackNeuro, bpm: number) {
+    const sawCount = 3;
+    const saws: OscillatorNode[] = [];
+    const dist = audio.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      const x = (i / 128) - 1;
+      curve[i] = (Math.PI + 5) * x / (Math.PI + 5 * Math.abs(x));
+    }
+    dist.curve = curve;
+    dist.oversample = '2x';
+
+    const mix = audio.createGain();
+    mix.gain.value = 1 / sawCount;
+    for (let i = 0; i < sawCount; i++) {
+      const osc = audio.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      osc.detune.value = Math.round((i - (sawCount - 1) / 2) * n.detune);
+      osc.connect(mix);
+      saws.push(osc);
+    }
+    mix.connect(dist);
+
+    const filter = audio.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(Math.max(30, n.fStart), time);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(30, n.fEnd), time + dur);
+    filter.Q.value = n.q;
+    const lfo = audio.createOscillator();
+    lfo.type = 'sine';
+    const lfoRate = n.lfoRate > 0 ? n.lfoRate : bpm / 60 * 4;
+    lfo.frequency.value = lfoRate;
+    const lfoGain = audio.createGain();
+    lfoGain.gain.value = n.lfoDepth;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
+
+    const g = audio.createGain();
+    g.gain.setValueAtTime(n.gain, time);
+    g.gain.setValueAtTime(n.gain, time + dur * 0.7);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    dist.connect(filter);
+    filter.connect(g);
+    g.connect(dest);
+
+    saws.forEach((osc) => {
+      osc.start(time);
+      osc.stop(time + dur + 0.02);
+    });
+    lfo.start(time);
+    lfo.stop(time + dur + 0.02);
   }
 
   // "Stab" voice — chant/lead (Mortal Kombat chant, Doom riff stabs): sub-octave doubled, driven, present
@@ -604,6 +678,72 @@ export function useAudio() {
   const hmTom4 = [0, 0, 0, 0, 0, 0, 146.83, 0, 0, 0, 0, 0, 110.00, 130.81, 146.83, 0];
   const hmCsh4 = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
   const hmRoll4 = [1, 0, 1, 0, 1, 0, 1, 0, 2, 2, 2, 2, 2, 2, 2, 2];
+
+  // ── Iron March (NEW track — Hell March essence overdriven) ────────
+  // Same D Phrygian drop-D stomp, pushed harder/faster/brutaler with a
+  // 2:11 fixed arrangement and tempo-synced neuro wobble bass.
+  // D2=73.42 Eb2=77.78 F2=87.31 F#2=92.50 G2=98.00 Ab2=103.83 D1=36.71
+  const KICK_SINGLE = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imDroneA = [73.42, 0, 0, 0, 0, 0, 0, 0, 73.42, 0, 0, 0, 0, 0, 0, 0];
+  const imDroneB = [73.42, 0, 0, 0, 0, 0, 0, 0, 73.42, 0, 0, 0, 0, 0, 0, 0];
+  const imBd1A = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0];
+  const imBd1B = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 87.31, 92.50, 98.00, 0];
+  const imBd2A = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 73.42, 0, 73.42, 0];
+  const imBd2B = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 87.31, 92.50, 98.00, 0];
+  const imBd3A = [73.42, 0, 73.42, 0, 73.42, 0, 77.78, 0, 77.78, 0, 87.31, 0, 87.31, 0, 92.50, 0];
+  const imBd3B = [92.50, 0, 98.00, 0, 110.00, 0, 98.00, 0, 92.50, 0, 87.31, 0, 77.78, 0, 73.42, 0];
+  const imDrpA = [73.42, 73.42, 77.78, 73.42, 87.31, 73.42, 92.50, 87.31, 73.42, 73.42, 77.78, 73.42, 98.00, 92.50, 87.31, 36.71];
+  const imDrpB = [73.42, 92.50, 98.00, 92.50, 87.31, 77.78, 73.42, 36.71, 73.42, 73.42, 77.78, 73.42, 87.31, 92.50, 98.00, 103.83];
+  const imDrpC = [36.71, 0, 73.42, 0, 77.78, 0, 87.31, 0, 92.50, 0, 98.00, 0, 103.83, 0, 110.00, 0];
+  const imDrpD = [110.00, 0, 103.83, 0, 98.00, 0, 92.50, 0, 87.31, 0, 77.78, 0, 73.42, 0, 36.71, 0];
+  const imMaA = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 73.42, 0, 73.42, 0];
+  const imMaB = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 87.31, 92.50, 98.00, 0];
+  const imMbA = [73.42, 73.42, 0, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 73.42, 0, 73.42, 0];
+  const imMbB = [73.42, 0, 73.42, 0, 77.78, 0, 73.42, 0, 73.42, 0, 92.50, 0, 87.31, 92.50, 98.00, 0];
+  const imBrkA = [36.71, 0, 0, 0, 0, 0, 36.71, 0, 0, 0, 0, 0, 0, 0, 36.71, 0];
+  const imBrkB = [36.71, 0, 0, 0, 0, 0, 36.71, 0, 0, 0, 0, 0, 0, 0, 36.71, 0];
+  const imRisA = [73.42, 0, 73.42, 0, 73.42, 0, 73.42, 0, 87.31, 0, 92.50, 0, 98.00, 0, 103.83, 0];
+  const imRisB = [87.31, 0, 92.50, 0, 98.00, 0, 103.83, 0, 110.00, 0, 103.83, 0, 98.00, 0, 92.50, 0];
+  const imFinA = [73.42, 73.42, 77.78, 73.42, 87.31, 73.42, 92.50, 87.31, 73.42, 73.42, 77.78, 73.42, 98.00, 92.50, 98.00, 36.71];
+  const imFinB = [73.42, 92.50, 98.00, 92.50, 87.31, 77.78, 73.42, 36.71, 110.00, 103.83, 98.00, 92.50, 87.31, 92.50, 98.00, 103.83];
+  const imFinC = [73.42, 73.42, 77.78, 77.78, 87.31, 87.31, 92.50, 92.50, 73.42, 73.42, 77.78, 87.31, 92.50, 98.00, 103.83, 110.00];
+  const imFinD = [110.00, 103.83, 98.00, 92.50, 87.31, 77.78, 73.42, 36.71, 73.42, 73.42, 77.78, 77.78, 87.31, 92.50, 98.00, 36.71];
+  const imOutA = [73.42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36.71, 0, 0, 0];
+  const imOutB = [73.42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36.71, 0, 0, 0];
+  const imStIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imStDrn = [146.83, 0, 0, 0, 0, 0, 0, 0, 146.83, 0, 0, 0, 0, 0, 0, 0];
+  const imStBd1 = [0, 0, 0, 0, 110.00, 0, 0, 0, 0, 0, 0, 0, 110.00, 0, 0, 0];
+  const imStBd2 = [110.00, 0, 110.00, 0, 116.54, 0, 110.00, 0, 110.00, 0, 138.59, 0, 110.00, 0, 110.00, 0];
+  const imStBd3 = [110.00, 0, 116.54, 0, 130.81, 0, 138.59, 0, 146.83, 0, 138.59, 0, 116.54, 0, 110.00, 0];
+  const imStDrpA = [0, 110.00, 0, 110.00, 0, 110.00, 0, 110.00, 0, 138.59, 0, 138.59, 0, 110.00, 0, 110.00];
+  const imStDrpB = [0, 0, 0, 0, 174.61, 0, 174.61, 0, 0, 0, 0, 0, 185.00, 0, 196.00, 0];
+  const imStMaA = [110.00, 0, 110.00, 0, 116.54, 0, 110.00, 0, 110.00, 0, 138.59, 0, 110.00, 0, 110.00, 0];
+  const imStMbA = [293.66, 0, 0, 0, 311.13, 0, 261.63, 0, 293.66, 0, 0, 0, 293.66, 0, 311.13, 0];
+  const imStMbB = [110.00, 110.00, 0, 0, 116.54, 0, 110.00, 0, 110.00, 0, 138.59, 0, 130.81, 138.59, 146.83, 0];
+  const imStRis = [110.00, 0, 116.54, 0, 130.81, 0, 138.59, 0, 146.83, 0, 155.56, 0, 164.81, 0, 174.61, 0];
+  const imStFin = [293.66, 0, 0, 0, 311.13, 0, 261.63, 0, 293.66, 0, 0, 0, 293.66, 0, 311.13, 0];
+  const imStFin2 = [293.66, 293.66, 311.13, 311.13, 293.66, 293.66, 349.23, 349.23, 311.13, 311.13, 293.66, 293.66, 311.13, 349.23, 293.66, 0];
+  const imStOut = [146.83, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 146.83, 0, 0, 0];
+  const imChgIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imChgDrp = [73.42, 73.42, 73.42, 73.42, 73.42, 73.42, 0, 73.42, 73.42, 73.42, 0, 73.42, 73.42, 73.42, 73.42, 0];
+  const imGhs0 = [0, 73.42, 0, 73.42, 0, 73.42, 0, 73.42, 0, 73.42, 0, 73.42, 0, 73.42, 0, 73.42];
+  const imGhs1 = [73.42, 73.42, 0, 73.42, 73.42, 73.42, 0, 73.42, 73.42, 73.42, 0, 73.42, 0, 73.42, 73.42, 0];
+  const imTomIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imTom0 = [0, 0, 0, 0, 0, 0, 98.00, 0, 0, 0, 0, 0, 0, 0, 110.00, 0];
+  const imTom1 = [0, 0, 98.00, 0, 0, 0, 98.00, 0, 0, 0, 110.00, 0, 0, 0, 110.00, 0];
+  const imTom2 = [0, 0, 0, 0, 98.00, 0, 98.00, 0, 110.00, 0, 110.00, 0, 130.81, 146.83, 155.56, 0];
+  const imTomDrp = [0, 0, 98.00, 0, 0, 0, 98.00, 0, 0, 0, 110.00, 0, 0, 0, 130.81, 146.83];
+  const imTomBrk = [0, 0, 0, 0, 73.42, 0, 0, 0, 0, 0, 0, 0, 110.00, 0, 130.81, 0];
+  const imCshIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imCsh0 = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
+  const imCsh1 = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imCsh2 = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+  const imRollIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const imRoll0 = [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1];
+  const imRoll1 = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
+  const imRoll2 = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2];
+  const imRoll3 = [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2];
+  const imRollBrk = [0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1];
 
   // ── Industrial (Duke3D, E minor) bass lines ──────────────────────
 
@@ -877,12 +1017,84 @@ export function useAudio() {
     ],
   };
 
+  const IRON_MARCH_TRACK: TrackDef = {
+    id: 'iron-march',
+    name: 'Iron March',
+    emoji: '⚡',
+    bpm: 150,
+    swing: 0.12,
+    jitter: 0.003,
+    mainSection: 0,
+    mainLoops: 15,
+    altLoops: { min: 5, max: 10 },
+    drums: {
+      kick: { start: 220, end: 24, dur: 0.34, gain: 1.05, type: 'sine' },
+      snare: { noiseGain: 0.65, filter: 2500, bodyGain: 0.35, bodyStart: 240, bodyEnd: 70 },
+      hh: { closedGain: 0.05, openGain: 0.11 },
+      rattle: { gain: 0.26, filter: 3200 },
+    },
+    bass: { gain: 0.36, fStart: 700, fEnd: 140, q: 3 },
+    neuBass: { gain: 0.4, fStart: 1500, fEnd: 900, q: 7, detune: 14, lfoDepth: 1100, lfoRate: 0 },
+    stab: { gain: 0.36, fStart: 800, fEnd: 160, q: 1.5, type: 'sawtooth', dur: 0.24, detune: 8, vibrato: 0.006, filter: 'lowpass' },
+    chug: { gain: 0.38, fStart: 600, fEnd: 110, q: 7, type: 'square', dur: 0.07 },
+    tom: { gain: 0.42, sweep: 0.11, ring: 0.2 },
+    crash: { gain: 0.34 },
+    sections: [
+      // 0 intro — dark D drone + ratchet chirp
+      { kick: hmKick1, bassA: imDroneA, bassB: imDroneB, stab: imStDrn, chug: imChgIdle, tom: imTom0, crash: imCsh1, roll: imRoll0 },
+      // 1 build 1 — stomp ignites, chug offbeats grind in
+      { kick: hmKick1, bassA: imBd1A, bassB: imBd1B, stab: imStBd1, chug: imGhs0, tom: imTom0, crash: imCsh1, roll: imRoll1 },
+      // 2 build 2 — the classic Klepacki riff, snare locks in
+      { kick: hmKick0, bassA: imBd2A, bassB: imBd2B, stab: imStBd2, chug: imGhs0, tom: imTom0, crash: imCsh0, roll: imRoll2 },
+      // 3 build 3 — chromatic climb, ratchet to double density
+      { kick: hmKick0, bassA: imBd3A, bassB: imBd3B, stab: imStBd3, chug: imGhs1, tom: imTom2, crash: imCsh0, roll: imRoll3 },
+      // 4 drop A — blast kicks + neuro bass run
+      { kick: KICK_BLAST, bassA: imDrpA, bassB: imDrpB, stab: imStDrpA, chug: imChgDrp, tom: imTomDrp, crash: imCsh0, roll: imRoll2 },
+      // 5 drop B — neuro octave-jump machine
+      { kick: KICK_BLAST, bassA: imDrpC, bassB: imDrpD, stab: imStDrpB, chug: imChgDrp, tom: imTomDrp, crash: imCsh0, roll: imRoll3 },
+      // 6 march verse A — the iconic power-chord stomp
+      { kick: hmKick0, bassA: imMaA, bassB: imMaB, stab: imStMaA, chug: imGhs0, tom: imTom0, crash: imCsh0, roll: imRoll1 },
+      // 7 march verse B — HM2 choir wail above the stomp
+      { kick: hmKick2, bassA: imMbA, bassB: imMbB, stab: imStMbA, chug: imGhs1, tom: imTom1, crash: imCsh2, roll: imRoll2 },
+      // 8 breakdown — sub pulses + taiko, the ratchet cuts through
+      { kick: hmKick0, bassA: imBrkA, bassB: imBrkB, stab: imStIdle, chug: imChgIdle, tom: imTomBrk, crash: imCsh1, roll: imRollBrk },
+      // 9 rise — pulsing D, register climbs, snare build
+      { kick: KICK_RISE, bassA: imRisA, bassB: imRisB, stab: imStRis, chug: imGhs0, tom: imTom2, crash: imCsh0, roll: imRoll3 },
+      // 10 finale A — all guns, raging neuro riff + choir wail
+      { kick: KICK_BLAST, bassA: imFinA, bassB: imFinB, stab: imStFin, chug: imChgDrp, tom: imTomDrp, crash: imCsh2, roll: imRoll3 },
+      // 11 finale B — double-time machine-gun climb
+      { kick: KICK_BLAST, bassA: imFinC, bassB: imFinD, stab: imStFin2, chug: imGhs0, tom: imTom2, crash: imCsh2, roll: imRoll3 },
+      // 12 outro — single power-chord sting
+      { kick: KICK_SINGLE, bassA: imOutA, bassB: imOutB, stab: imStOut, chug: imChgIdle, tom: imTomIdle, crash: imCsh0, roll: imRollIdle },
+    ],
+    // Full 2:11 arrangement: intro → build → drop → march → breakdown
+    // → rise → finale → outro, then the loop restarts from the top.
+    timeline: [
+      { section: 0, loops: 2 },
+      { section: 1, loops: 2 },
+      { section: 2, loops: 2 },
+      { section: 3, loops: 2 },
+      { section: 4, loops: 4 },
+      { section: 5, loops: 4 },
+      { section: 6, loops: 2 },
+      { section: 7, loops: 2 },
+      { section: 6, loops: 2 },
+      { section: 7, loops: 2 },
+      { section: 8, loops: 3 },
+      { section: 9, loops: 4 },
+      { section: 10, loops: 6 },
+      { section: 11, loops: 3 },
+      { section: 12, loops: 1 },
+    ],
+  };
+
   const TRACKS: TrackDef[] = [
     INDUSTRIAL_TRACK,
     FATALITY_TRACK,
     RIP_AND_TEAR_TRACK,
     VOID_PRISM_TRACK,
     HELL_MARCH_TRACK,
+    IRON_MARCH_TRACK,
   ];
 
   const trackIndex = ref(loadTrackIndex());
@@ -958,14 +1170,26 @@ export function useAudio() {
     const bassLine = Math.floor(currentStep / 16) % 2 === 0 ? section.bassA : section.bassB;
     const bassFreq = bassLine[step];
     if (bassFreq > 0) {
-      playBass(audio, dest, t, bassFreq, stepDur / 1000 * 0.9, track.bass);
+      const bassDur = stepDur / 1000 * 0.9;
+      if (track.neuBass) {
+        playNeuroBass(audio, dest, t, bassFreq, bassDur, track.neuBass, track.bpm);
+      } else {
+        playBass(audio, dest, t, bassFreq, bassDur, track.bass);
+      }
     }
 
     currentStep++;
     sectionStepsLeft--;
 
     if (currentStep % 16 === 0 && sectionStepsLeft <= 0) {
-      enterSection((currentSectionIdx + 1) % track.sections.length);
+      if (track.timeline && track.timeline.length > 0) {
+        timelinePos = (timelinePos + 1) % track.timeline.length;
+        const entry = track.timeline[timelinePos];
+        currentSectionIdx = entry.section;
+        sectionStepsLeft = entry.loops;
+      } else {
+        enterSection((currentSectionIdx + 1) % track.sections.length);
+      }
     }
   }
 
@@ -977,7 +1201,15 @@ export function useAudio() {
     songCtx = audio;
     songDest = musicGain;
     currentStep = 0;
-    enterSection(TRACKS[trackIndex.value].mainSection);
+    const track = TRACKS[trackIndex.value];
+    if (track.timeline && track.timeline.length > 0) {
+      timelinePos = 0;
+      const entry = track.timeline[0];
+      currentSectionIdx = entry.section;
+      sectionStepsLeft = entry.loops;
+    } else {
+      enterSection(track.mainSection);
+    }
 
     const stepDur = 60 / TRACKS[trackIndex.value].bpm / 2 * 1000;
     beatTimer = window.setInterval(schedulerTick, stepDur);

@@ -12,8 +12,8 @@ const emit = defineEmits<{
 }>();
 
 function formatDate(timestamp: number | null): string {
-  if (!timestamp) return 'Nog nooit gesaved';
-  return new Date(timestamp).toLocaleString('nl-NL', {
+  if (!timestamp) return 'Never saved';
+  return new Date(timestamp).toLocaleString('en-GB', {
     dateStyle: 'medium',
     timeStyle: 'medium',
   });
@@ -27,7 +27,7 @@ function formatDate(timestamp: number | null): string {
       <div class="flex justify-between items-center border-b border-cyan-800/60 pb-3">
         <h2 class="text-xl font-bold tracking-wider text-amber-400 flex items-center space-x-2">
           <span>💾</span>
-          <span>SPEL OPSLAAN (SAVE)</span>
+          <span>SAVE GAME</span>
         </h2>
         <button 
           @click="emit('close')"
@@ -38,7 +38,7 @@ function formatDate(timestamp: number | null): string {
       </div>
 
       <p class="text-xs text-gray-300">
-        Kies een save slot om je huidige voortgang op te slaan:
+        Choose a save slot to store your current progress:
       </p>
 
       <div class="space-y-3">
@@ -49,10 +49,10 @@ function formatDate(timestamp: number | null): string {
         >
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT A</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Opslaan</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Save</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.A.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.A.updatedAt) }}</strong>
           </span>
         </button>
 
@@ -63,10 +63,10 @@ function formatDate(timestamp: number | null): string {
         >
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT B</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Opslaan</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Save</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.B.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.B.updatedAt) }}</strong>
           </span>
         </button>
 
@@ -77,10 +77,10 @@ function formatDate(timestamp: number | null): string {
         >
           <div class="flex justify-between items-center font-bold text-cyan-200 group-hover:text-cyan-100">
             <span>SAVE SLOT C</span>
-            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Opslaan</span>
+            <span class="text-xs text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-700/50">Save</span>
           </div>
           <span class="text-xs text-gray-400">
-            Laatst gesaved: <strong class="text-gray-300">{{ formatDate(slotMetadata.C.updatedAt) }}</strong>
+            Last saved: <strong class="text-gray-300">{{ formatDate(slotMetadata.C.updatedAt) }}</strong>
           </span>
         </button>
       </div>
@@ -90,7 +90,7 @@ function formatDate(timestamp: number | null): string {
           @click="emit('close')"
           class="bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold px-4 py-2 rounded text-xs transition-colors"
         >
-          Annuleren
+          Cancel
         </button>
       </div>
 

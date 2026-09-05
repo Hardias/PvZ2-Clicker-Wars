@@ -75,10 +75,10 @@ function canBuy(item: Item): boolean {
 }
 
 function buttonLabel(item: Item): string {
-  if (!canAfford(item, props.minerals, props.vespeneGas)) return 'TE WEINIG FUNDS';
-  if (buySlotFor(item) === -1) return 'INVENTARIS VOL';
-  if (!hasEmptySlot.value) return 'KOOP (VERVANG #1)';
-  return 'KOOP ITEM';
+  if (!canAfford(item, props.minerals, props.vespeneGas)) return 'NOT ENOUGH FUNDS';
+  if (buySlotFor(item) === -1) return 'INVENTORY FULL';
+  if (!hasEmptySlot.value) return 'BUY (REPLACE #1)';
+  return 'BUY ITEM';
 }
 
 function handleBuy(item: Item) {
@@ -94,8 +94,8 @@ function handleBuy(item: Item) {
       <!-- Header -->
       <div class="flex justify-between items-center border-b border-cyan-800 pb-4 mb-4">
         <div>
-          <h2 class="text-xl font-bold tracking-wider text-amber-400">ZEALOT SHOP & INVENTARIS</h2>
-          <p class="text-xs text-gray-400">Gekochte items worden automatisch in een leeg slot geplaatst. Klik op een item in je inventaris om het te verkopen voor een volledige refund.</p>
+          <h2 class="text-xl font-bold tracking-wider text-amber-400">ZEALOT SHOP & INVENTORY</h2>
+          <p class="text-xs text-gray-400">Purchased items are automatically placed in the first empty slot. Click an item in your inventory to sell it for a full refund.</p>
         </div>
         <div class="flex items-center space-x-3">
           <div class="bg-cyan-950 px-3 py-1.5 rounded border border-cyan-600 font-mono text-sm text-cyan-200 flex items-center space-x-3">
@@ -119,15 +119,15 @@ function handleBuy(item: Item) {
         <div class="flex items-center justify-between bg-gray-950 border border-cyan-800/60 rounded-lg px-4 py-2.5">
           <span class="text-xs font-bold text-cyan-300 uppercase tracking-wider">Shop Tier</span>
           <span class="text-xs font-mono font-bold text-amber-300">
-            {{ shopRankName || 'Basis' }} ({{ shopMultiplierLabel }})
+            {{ shopRankName || 'Basic' }} ({{ shopMultiplierLabel }})
           </span>
         </div>
 
         <div v-if="shopUpgradeAvailable" class="bg-amber-950/70 border-2 border-amber-500 rounded-xl p-4 flex justify-between items-center shadow-lg shadow-amber-500/20">
           <div>
-            <div class="text-sm font-bold text-amber-300">⬆ SHOP UPGRADE BESCHIKBAAR!</div>
+            <div class="text-sm font-bold text-amber-300">⬆ SHOP UPGRADE AVAILABLE!</div>
             <div class="text-[10px] text-gray-400 mt-0.5">
-              Een Final Wall cyclus is voltooid. Upgrade de shop gratis zodat ALLE items net zo hard schalen als de Final Wall ({{ nextMultiplierLabel }} stats &amp; kosten).
+              A Final Wall cycle has been completed. Upgrade the shop for free so ALL items scale just as hard as the Final Wall ({{ nextMultiplierLabel }} stats &amp; cost).
             </div>
           </div>
           <button
@@ -142,8 +142,8 @@ function handleBuy(item: Item) {
       <!-- Visible & Interactive Inventory inside Shop -->
       <div class="bg-gray-950 border border-cyan-800/60 rounded-xl p-4 mb-4">
         <div class="flex justify-between items-center mb-2">
-          <span class="text-xs font-bold text-cyan-300 uppercase tracking-wider">Jouw Inventaris ({{ slots.filter(s => s.item !== null).length }} / 6 Slots Bezet)</span>
-          <span class="text-[10px] text-gray-400">Klik op een item om te verkopen (+volledige kosten terug)</span>
+          <span class="text-xs font-bold text-cyan-300 uppercase tracking-wider">Your Inventory ({{ slots.filter(s => s.item !== null).length }} / 6 Slots Used)</span>
+          <span class="text-[10px] text-gray-400">Click an item to sell it (+full cost back)</span>
         </div>
         <div class="grid grid-cols-6 gap-2">
           <div 
@@ -167,14 +167,14 @@ function handleBuy(item: Item) {
               <button 
                 @click="emit('unequip', index)" 
                 class="absolute inset-0 bg-red-950/95 text-red-200 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-lg cursor-pointer"
-                :title="`Verkoop ${slot.item.name} voor ${formatNumber(slot.item.cost)}${slot.item.currency === 'vespene' ? 'V' : 'M'}`"
+                :title="`Sell ${slot.item.name} for ${formatNumber(slot.item.cost)}${slot.item.currency === 'vespene' ? 'V' : 'M'}`"
               >
-                <span>VERKOOP</span>
+                <span>SELL</span>
                 <span class="text-[9px] text-amber-300">+{{ formatNumber(slot.item.cost) }}{{ slot.item.currency === 'vespene' ? 'V' : 'M' }}</span>
               </button>
             </div>
             <div v-else class="text-[10px] text-gray-600 italic mt-2">
-              Leeg slot
+              Empty slot
             </div>
           </div>
         </div>
@@ -239,7 +239,7 @@ function handleBuy(item: Item) {
 
       <!-- Footer -->
       <div class="mt-4 pt-4 border-t border-cyan-800 text-center text-xs text-gray-500">
-        Items worden automatisch in je eerstvolgende lege inventarisslot geplaatst.
+        Items are automatically placed in your next empty inventory slot.
       </div>
     </div>
   </div>
