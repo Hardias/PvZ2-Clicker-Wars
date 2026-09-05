@@ -9,6 +9,7 @@ interface Props {
   maxHp: number;
   attackPower: number;
   attackSpeed: number;
+  currentDps: number;
   defense: number;
   hpRegen: number;
   equipmentStats: ItemStats & { totalDefenseReduction?: number };
@@ -29,6 +30,12 @@ function formatDefenseReduction(reduction: number): string {
   }
   return String(rounded).replace('.', ',') + '%';
 }
+
+function formatDps(value: number): string {
+  if (value === 0) return '0';
+  if (value < 1000) return value.toFixed(1).replace(/\.0$/, '');
+  return formatNumber(value);
+}
 </script>
 
 <template>
@@ -48,7 +55,7 @@ function formatDefenseReduction(reduction: number): string {
     <!-- HP Bar -->
     <div class="mb-4">
       <div class="flex justify-between text-xs mb-1">
-        <span>Shields / HP</span>
+        <span>HP</span>
         <span class="font-mono">{{ formatNumber(zealot.hp) }} / {{ formatNumber(maxHp) }}</span>
       </div>
       <div class="w-full bg-gray-800 h-3 rounded-full overflow-hidden border border-cyan-700/30">
@@ -72,12 +79,28 @@ function formatDefenseReduction(reduction: number): string {
       <div class="flex justify-between">
         <span class="text-gray-400" title="Damage Reduction Percentage">Defense:</span>
         <span class="font-mono text-cyan-300 font-semibold">
-          {{ formatDefenseReduction((equipmentStats as any).totalDefenseReduction || 0) }}
+          {{ formatDefenseReduction(equipmentStats.totalDefenseReduction || 0) }}
         </span>
       </div>
       <div class="flex justify-between">
         <span class="text-gray-400">Regen:</span>
         <span class="font-mono text-cyan-300 font-semibold">{{ formatNumber(hpRegen) }}/s</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400">Walls killed:</span>
+        <span class="font-mono text-amber-300 font-semibold">{{ formatNumber(zealot.wallsKilled ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400">Damage done:</span>
+        <span class="font-mono text-amber-300 font-semibold">{{ formatNumber(zealot.damageDone ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400">Highest avg DPS:</span>
+        <span class="font-mono text-purple-300 font-semibold">{{ formatDps(zealot.highestAverageDps ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400">Current DPS:</span>
+        <span class="font-mono text-purple-300 font-semibold">{{ formatDps(currentDps) }}</span>
       </div>
     </div>
   </div>
@@ -85,4 +108,3 @@ function formatDefenseReduction(reduction: number): string {
 
 <style scoped>
 </style>
-

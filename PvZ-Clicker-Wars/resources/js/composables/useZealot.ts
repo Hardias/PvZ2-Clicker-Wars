@@ -19,9 +19,13 @@ export function useZealot(
     baseHpRegen: 1.0, // HP per second
     minerals: 50,
     vespeneGas: 0,
+    infiniteVespene: false,
     emergencyTeleports: 2,
     deaths: 0,
     isImmobilized: false,
+    wallsKilled: 0,
+    damageDone: 0,
+    highestAverageDps: 0,
   };
 
   /** Load initial Zealot state from storage or fallback to defaults */
@@ -87,6 +91,12 @@ export function useZealot(
     return Math.max(0.2, base + (itemMultiplier * averageCps.value));
   });
 
+  // Current damage per second: gloves use the auto-attack rate, otherwise manual clicks (CPS)
+  const currentDps = computed(() => {
+    const rate = equipmentStats.value.hasGloves ? attackSpeed.value : averageCps.value;
+    return rate * attackPower.value;
+  });
+
   // Effective defense including equipment armor
   const defense = computed(() => state.value.baseDefense + (equipmentStats.value.defense || 0));
   
@@ -122,6 +132,8 @@ export function useZealot(
         return true;
       }
     } else if (currency === 'vespene') {
+      // DEV: infinite Vespene Gas never depletes
+      if (state.value.infiniteVespene) return true;
       if (state.value.vespeneGas >= cost) {
         state.value.vespeneGas -= cost;
         return true;
@@ -192,6 +204,7 @@ export function useZealot(
     maxHp,
     attackPower,
     attackSpeed,
+    currentDps,
     defense,
     hpRegen,
     takeDamage,

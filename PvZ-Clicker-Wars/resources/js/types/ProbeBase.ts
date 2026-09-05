@@ -21,8 +21,12 @@ export interface ProbeBase {
   rankName: string;
   probeKills: number;
   upgradeCount: number;
+  wallCycle: number;
+  shopCycle: number;
   timeUntilUpgrade: number;
   maxUpgradeTime: number;
+  // Frozen travel time (seconds) to reach SS1; every SS-level upgrade takes exactly this long.
+  ssJourneyTime?: number;
   wall: Wall;
   turret: TurretInfo;
   ability: 'chrono' | 'voidPrism';

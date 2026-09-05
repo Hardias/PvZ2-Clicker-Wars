@@ -6,6 +6,7 @@ import { useCombat } from '../composables/useCombat';
 import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
 import { useAudio } from '../composables/useAudio';
 import { Item } from '../types/Item';
+import { scaleShopItem, getShopMultiplier, getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
 
 import GameHeader from '../Components/GameHeader.vue';
 import AudioVisualizer from '../Components/AudioVisualizer.vue';
@@ -15,6 +16,7 @@ import BattleArea from '../Components/BattleArea.vue';
 import ShopModal from '../Components/ShopModal.vue';
 import SaveModal from '../Components/SaveModal.vue';
 import LoadModal from '../Components/LoadModal.vue';
+import DevTerminal from '../Components/DevTerminal.vue';
 
 const currentView = ref<'battle' | 'shop'>('battle');
 const isAtShop = computed(() => currentView.value === 'shop');
@@ -32,14 +34,15 @@ function toggleAutosave() {
 
 // Composables setup
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
-const { state: zealotState, maxHp, attackPower, attackSpeed, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
-const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase } = useCombat();
+const { state: zealotState, maxHp, attackPower, attackSpeed, currentDps, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
+const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase, advanceWallCycles } = useCombat();
 const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame } = useSaveSystem(zealotState, slots, probeBase);
 const audio = useAudio();
 
 const showShopModal = ref(false);
 const showSaveModal = ref(false);
 const showLoadModal = ref(false);
+const showDevTerminal = ref(false);
 const saveNotificationText = ref('Game geladen!');
 const autoSaveNotification = ref(false);
 let notificationTimeout: number | null = null;
@@ -123,8 +126,6 @@ function handleReset() {
     item: null,
   }));
   probeBase.value = createProbeBase(0, null);
-  audio.stopMusic();
-  audio.playMenuMusic();
   stopCombat(zealotState.value);
   showSaveNotification('Spel is gereset naar de absolute begintoestand!');
 }
@@ -230,10 +231,66 @@ const availableShopItems: Item[] = [
   { id: 'p_final', name: 'Final regeneration', category: 'final', rarity: 'legendary', stats: { hpRegen: 2048000 }, cost: 512, currency: 'vespene', description: '512V | +2,048,000/s HP Regen (Final Tier)' },
 ];
 
+// Shop catalog scaled to the current D-rank shop cycle (x1.5 stats & costs per cycle)
+const shopItems = computed<Item[]>(() =>
+  availableShopItems.map(item => scaleShopItem(item, getShopMultiplier(probeBase.value.shopCycle), getShopRankName(probeBase.value.shopCycle)))
+);
+
+// Upgrade the shop to D-rank items (free, once per completed Final Wall cycle)
+function handleShopUpgrade() {
+  if (probeBase.value.shopCycle >= probeBase.value.wallCycle) return;
+  const newCycle = probeBase.value.wallCycle;
+  probeBase.value = { ...probeBase.value, shopCycle: newCycle };
+  if (autosaveEnabled.value) autoSave();
+  showSaveNotification(`Shop geüpgraded: alle items zijn nu ${getShopRankName(newCycle)} (${getShopMultiplierLabel(newCycle)})!`);
+}
+
+// DEV Terminal action handlers
+const devActions = {
+  grantVespene() {
+    zealotState.value.infiniteVespene = true;
+    zealotState.value.vespeneGas += 500_000_000;
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification('∞ Vespene gas verleend (DEV)! Infinite!');
+  },
+  hardReset() {
+    const minerals = zealotState.value.minerals;
+    const vespeneGas = zealotState.value.vespeneGas;
+    zealotState.value = {
+      hp: 100,
+      maxHp: 100,
+      baseAttack: 15,
+      baseAttackSpeed: 1.0,
+      baseDefense: 5,
+      baseHpRegen: 1.0,
+      minerals,
+      vespeneGas,
+      infiniteVespene: zealotState.value.infiniteVespene,
+      emergencyTeleports: 2,
+      deaths: 0,
+      isImmobilized: false,
+      wallsKilled: 0,
+      damageDone: 0,
+      highestAverageDps: 0,
+    };
+    probeBase.value = createProbeBase(0, null);
+    stopCombat(zealotState.value);
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification('Wereld gereset (inventaris & resources behouden)!');
+  },
+  rankup(times: number) {
+    const cycle = advanceWallCycles(times);
+    probeBase.value = { ...probeBase.value, shopCycle: cycle };
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification(`Wall + shop opgegradeerd naar cyclus ${cycle + 1} (${getShopMultiplierLabel(cycle)})!`);
+  },
+};
+
 // Attack execution logic
 function performAttack() {
   if (zealotState.value.isImmobilized) return;
   const dmg = attackPower.value;
+  zealotState.value.damageDone = (zealotState.value.damageDone || 0) + dmg;
   gainMinerals(Math.floor(dmg));
   audio.playSfx('wallHit');
   const res = damageWall(dmg, zealotState.value);
@@ -254,6 +311,15 @@ function handleAttack() {
 // Purchase item from shop
 function buyItem(item: Item, slotIndex: number) {
   if (spendCurrency(item.cost, item.currency || 'minerals')) {
+    // With infinite Vespene Gas the shop may overwrite an occupied slot (slot #1) — refund the replaced item
+    const existing = unequipItem(slotIndex);
+    if (existing) {
+      if (existing.currency === 'vespene') {
+        zealotState.value.vespeneGas += existing.cost;
+      } else {
+        gainMinerals(existing.cost);
+      }
+    }
     equipItem(item, slotIndex);
     audio.playSfx('shopBuy');
     if (autosaveEnabled.value) autoSave();
@@ -308,6 +374,11 @@ onMounted(() => {
   // Fast tick (100ms) for smooth HP regen, smooth Turret combat damage, and 200ms wall repair for double/triple basers
   let wallRepairCounter = 0;
   fastTickInterval = window.setInterval(() => {
+    // Track highest average DPS ever recorded
+    if (currentDps.value > Number(zealotState.value.highestAverageDps ?? 0)) {
+      zealotState.value.highestAverageDps = currentDps.value;
+    }
+
     // HP Regeneration (per 100ms)
     if (hpRegen.value > 0 && zealotState.value.hp < maxHp.value) {
       heal(hpRegen.value / 10);
@@ -401,12 +472,15 @@ onUnmounted(() => {
     <GameHeader 
       :minerals="zealotState.minerals" 
       :vespeneGas="zealotState.vespeneGas"
+      :infiniteVespene="zealotState.infiniteVespene"
       v-model:currentView="currentView"
       :autosaveEnabled="autosaveEnabled"
       :musicVolume="audio.musicVolume.value"
       :sfxVolume="audio.sfxVolume.value"
       :musicMuted="audio.musicMuted.value"
       :sfxMuted="audio.sfxMuted.value"
+      :currentTrackName="audio.currentTrackName.value"
+      :currentTrackEmoji="audio.currentTrackEmoji.value"
       @save="handleOpenSaveModal"
       @load="handleOpenLoadModal"
       @reset="handleReset"
@@ -415,6 +489,7 @@ onUnmounted(() => {
       @toggleSfxMute="audio.toggleSfxMute"
       @setMusicVolume="audio.setMusicVolume"
       @setSfxVolume="audio.setSfxVolume"
+      @nextTrack="audio.nextTrack"
     />
 
     <!-- Main Content Layout: Left (Stats), Center (Battle/Shop), Right (Equipment 6 flexible slots) -->
@@ -427,6 +502,7 @@ onUnmounted(() => {
           :maxHp="maxHp"
           :attackPower="attackPower"
           :attackSpeed="attackSpeed"
+          :currentDps="currentDps"
           :defense="defense"
           :hpRegen="hpRegen"
           :equipmentStats="totalEquipmentStats"
@@ -447,13 +523,13 @@ onUnmounted(() => {
         <div v-else class="bg-gray-900 border border-cyan-500/40 rounded-lg p-6 text-center shadow-xl">
           <h2 class="text-2xl font-bold text-amber-400 mb-2">ZEALOT SHOPPING AREA</h2>
           <p class="text-sm text-gray-400 mb-6">
-            You are at the Zealot Shop Base. Your shields/HP are rapidly regenerating (+2,048,000 HP/s Final Regen). Turrets have ceased fire.
+            You are at the Zealot Shop Base. Your HP is rapidly regenerating (+2,048,000 HP/s Final Regen). Turrets have ceased fire.
           </p>
           <button 
             @click="showShopModal = true"
             class="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-lg shadow-lg shadow-amber-600/30 transition-all text-sm tracking-wider"
           >
-            OPEN ZEALOT SHOP ({{ availableShopItems.length }} Items Available)
+            OPEN ZEALOT SHOP ({{ shopItems.length }} Items Available)
           </button>
         </div>
       </div>
@@ -470,11 +546,15 @@ onUnmounted(() => {
       v-if="showShopModal"
       :minerals="zealotState.minerals"
       :vespeneGas="zealotState.vespeneGas"
-      :availableItems="availableShopItems"
+      :infiniteVespene="zealotState.infiniteVespene"
+      :availableItems="shopItems"
       :slots="slots"
+      :shopCycle="probeBase.shopCycle"
+      :wallCycle="probeBase.wallCycle"
       @buyItem="buyItem"
       @unequip="handleUnequip"
       @convertMaxVespene="handleConvertMaxVespene"
+      @upgradeShop="handleShopUpgrade"
       @close="showShopModal = false"
     />
 
@@ -506,6 +586,22 @@ onUnmounted(() => {
       <span>🐍</span>
       <span>PATHER: {{ disablePather ? 'UIT (Reroll)' : 'AAN' }}</span>
     </button>
+
+    <!-- DEV Tools Terminal (Toggle button, bottom left) -->
+    <button
+      @click="showDevTerminal = !showDevTerminal"
+      class="fixed bottom-4 left-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all bg-black text-green-400 border-green-700 hover:bg-gray-900"
+      title="DEV Tools (geheime terminal)"
+    >
+      <span>⚙️</span>
+      <span>DEV Tools</span>
+    </button>
+
+    <DevTerminal
+      v-if="showDevTerminal"
+      :actions="devActions"
+      @close="showDevTerminal = false"
+    />
 
     <!-- Notification Toast -->
     <Transition

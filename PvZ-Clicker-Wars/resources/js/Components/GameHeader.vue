@@ -5,12 +5,15 @@ import { formatNumber } from '../utils/format';
 interface Props {
   minerals: number;
   vespeneGas: number;
+  infiniteVespene?: boolean;
   currentView: 'battle' | 'shop';
   autosaveEnabled: boolean;
   musicVolume: number;
   sfxVolume: number;
   musicMuted: boolean;
   sfxMuted: boolean;
+  currentTrackName: string;
+  currentTrackEmoji: string;
 }
 
 defineProps<Props>();
@@ -24,6 +27,7 @@ const emit = defineEmits<{
   (e: 'toggleSfxMute'): void;
   (e: 'setMusicVolume', value: number): void;
   (e: 'setSfxVolume', value: number): void;
+  (e: 'nextTrack'): void;
 }>();
 
 const showAudioPanel = ref(false);
@@ -49,7 +53,7 @@ const showAudioPanel = ref(false);
         </div>
         <div class="bg-gray-950 px-3 py-2 rounded-lg border border-green-800/60 flex items-center space-x-1.5" title="Vespene Gas (V)">
           <span class="text-green-400 font-bold">🟢</span>
-          <span class="font-mono font-bold text-green-300 text-sm">{{ formatNumber(vespeneGas) }}V</span>
+          <span class="font-mono font-bold text-green-300 text-sm">{{ infiniteVespene ? '∞' : formatNumber(vespeneGas) }}V</span>
         </div>
       </div>
 
@@ -97,6 +101,21 @@ const showAudioPanel = ref(false);
             v-if="showAudioPanel"
             class="absolute right-0 top-full mt-2 bg-gray-900 border border-purple-500/40 rounded-lg p-4 shadow-2xl shadow-purple-900/50 z-50 w-64"
           >
+            <!-- Music Track Selector -->
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Track</span>
+                <span class="text-[10px] font-bold text-purple-200">{{ currentTrackEmoji }} {{ currentTrackName }}</span>
+              </div>
+              <button
+                @click="emit('nextTrack')"
+                class="w-full bg-purple-800/50 hover:bg-purple-700/60 text-purple-100 px-3 py-1.5 rounded text-xs font-bold border border-purple-500/50 transition-all"
+                :disabled="musicMuted"
+              >
+                NEXT TRACK ▶▶
+              </button>
+            </div>
+
             <!-- Music Volume -->
             <div class="mb-3">
               <div class="flex items-center justify-between mb-1">

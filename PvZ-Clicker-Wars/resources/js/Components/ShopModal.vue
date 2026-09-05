@@ -2,12 +2,16 @@
 import { ref, computed } from 'vue';
 import { Item, ItemCategory, InventorySlot } from '../types/Item';
 import { formatNumber } from '../utils/format';
+import { getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
 
 interface Props {
   minerals: number;
   vespeneGas: number;
+  infiniteVespene?: boolean;
   availableItems: Item[];
   slots: InventorySlot[];
+  shopCycle: number;
+  wallCycle: number;
 }
 
 const props = defineProps<Props>();
@@ -15,11 +19,17 @@ const emit = defineEmits<{
   (e: 'buyItem', item: Item, slotIndex: number): void;
   (e: 'unequip', slotIndex: number): void;
   (e: 'convertMaxVespene'): void;
+  (e: 'upgradeShop'): void;
   (e: 'close'): void;
 }>();
 
 const activeTab = ref<ItemCategory>('blades');
 const maxPossibleV = computed(() => Math.floor(props.minerals / 64000));
+
+const shopRankName = computed(() => getShopRankName(props.shopCycle));
+const shopMultiplierLabel = computed(() => getShopMultiplierLabel(props.shopCycle));
+const nextMultiplierLabel = computed(() => getShopMultiplierLabel(props.wallCycle));
+const shopUpgradeAvailable = computed(() => props.wallCycle > props.shopCycle);
 
 const tabs: { key: ItemCategory; label: string }[] = [
   { key: 'blades', label: '⚔️ Blades' },
@@ -40,21 +50,41 @@ const firstEmptySlotIndex = computed(() => {
 
 const hasEmptySlot = computed(() => firstEmptySlotIndex.value !== -1);
 
+/** With infinite Vespene Gas: vespene items may overwrite slot #1 when inventory is full */
+function replacementAllowed(item: Item): boolean {
+  return item.currency === 'vespene' && props.infiniteVespene === true;
+}
+
+function buySlotFor(item: Item): number {
+  const emptyIdx = firstEmptySlotIndex.value;
+  if (emptyIdx !== -1) return emptyIdx;
+  if (replacementAllowed(item)) return 0;
+  return -1;
+}
+
 function canAfford(item: Item, minerals: number, vespene: number): boolean {
   if (item.currency === 'vespene') {
+    if (props.infiniteVespene) return true;
     return vespene >= item.cost;
   }
   return minerals >= item.cost;
 }
 
+function canBuy(item: Item): boolean {
+  return canAfford(item, props.minerals, props.vespeneGas) && buySlotFor(item) !== -1;
+}
+
+function buttonLabel(item: Item): string {
+  if (!canAfford(item, props.minerals, props.vespeneGas)) return 'TE WEINIG FUNDS';
+  if (buySlotFor(item) === -1) return 'INVENTARIS VOL';
+  if (!hasEmptySlot.value) return 'KOOP (VERVANG #1)';
+  return 'KOOP ITEM';
+}
+
 function handleBuy(item: Item) {
-  const emptyIdx = firstEmptySlotIndex.value;
-  if (emptyIdx === -1) {
-    alert('Inventaris is vol! Verkoop eerst een item.');
-    return;
-  }
-  if (!canAfford(item, props.minerals, props.vespeneGas)) return;
-  emit('buyItem', item, emptyIdx);
+  const idx = buySlotFor(item);
+  if (idx === -1) return;
+  emit('buyItem', item, idx);
 }
 </script>
 
@@ -75,11 +105,36 @@ function handleBuy(item: Item) {
             </span>
             <span class="text-green-400 flex items-center space-x-1">
               <span>🟢</span>
-              <span>{{ vespeneGas }}V</span>
+              <span>{{ infiniteVespene ? '∞' : formatNumber(vespeneGas) }}V</span>
             </span>
           </div>
           <button @click="emit('close')" class="bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded text-xs text-gray-300 font-bold border border-gray-600">
             [ X ]
+          </button>
+        </div>
+      </div>
+
+      <!-- Shop Tier + D-Rank Upgrade Banner -->
+      <div class="mb-4 space-y-3">
+        <div class="flex items-center justify-between bg-gray-950 border border-cyan-800/60 rounded-lg px-4 py-2.5">
+          <span class="text-xs font-bold text-cyan-300 uppercase tracking-wider">Shop Tier</span>
+          <span class="text-xs font-mono font-bold text-amber-300">
+            {{ shopRankName || 'Basis' }} ({{ shopMultiplierLabel }})
+          </span>
+        </div>
+
+        <div v-if="shopUpgradeAvailable" class="bg-amber-950/70 border-2 border-amber-500 rounded-xl p-4 flex justify-between items-center shadow-lg shadow-amber-500/20">
+          <div>
+            <div class="text-sm font-bold text-amber-300">⬆ SHOP UPGRADE BESCHIKBAAR!</div>
+            <div class="text-[10px] text-gray-400 mt-0.5">
+              Een Final Wall cyclus is voltooid. Upgrade de shop gratis zodat ALLE items net zo hard schalen als de Final Wall ({{ nextMultiplierLabel }} stats &amp; kosten).
+            </div>
+          </div>
+          <button
+            @click="emit('upgradeShop')"
+            class="px-4 py-3 rounded-lg text-xs font-bold tracking-wider transition-all shadow-lg bg-amber-600 hover:bg-amber-500 text-white cursor-pointer shadow-amber-600/30 whitespace-nowrap"
+          >
+            UPGRADE SHOP → {{ nextMultiplierLabel }}
           </button>
         </div>
       </div>
@@ -103,16 +158,16 @@ function handleBuy(item: Item) {
             <div v-if="slot.item" class="text-center mt-2 w-full">
               <div class="text-[11px] font-bold text-cyan-200 truncate px-1" :title="slot.item.name">{{ slot.item.name }}</div>
               <div class="text-[9px] text-green-400 font-mono mt-0.5">
-                <span v-if="slot.item.stats.damage">+{{ slot.item.stats.damage }} DMG</span>
-                <span v-else-if="slot.item.stats.attackSpeed">+{{ slot.item.stats.attackSpeed }} SPD</span>
-                <span v-else-if="slot.item.stats.hp">+{{ slot.item.stats.hp }} HP</span>
-                <span v-else-if="slot.item.stats.defense">+{{ slot.item.stats.defense }} DEF</span>
-                <span v-else-if="slot.item.stats.hpRegen">+{{ slot.item.stats.hpRegen }} REG</span>
+                <span v-if="slot.item.stats.damage">+{{ formatNumber(slot.item.stats.damage) }} DMG</span>
+                <span v-else-if="slot.item.stats.attackSpeed">+{{ formatNumber(slot.item.stats.attackSpeed) }} SPD</span>
+                <span v-else-if="slot.item.stats.hp">+{{ formatNumber(slot.item.stats.hp) }} HP</span>
+                <span v-else-if="slot.item.stats.defense">+{{ formatNumber(slot.item.stats.defense) }} DEF</span>
+                <span v-else-if="slot.item.stats.hpRegen">+{{ formatNumber(slot.item.stats.hpRegen) }} REG</span>
               </div>
               <button 
                 @click="emit('unequip', index)" 
                 class="absolute inset-0 bg-red-950/95 text-red-200 text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center rounded-lg cursor-pointer"
-                :title="`Verkoop ${slot.item.name} voor ${slot.item.cost}${slot.item.currency === 'vespene' ? 'V' : 'M'}`"
+                :title="`Verkoop ${slot.item.name} voor ${formatNumber(slot.item.cost)}${slot.item.currency === 'vespene' ? 'V' : 'M'}`"
               >
                 <span>VERKOOP</span>
                 <span class="text-[9px] text-amber-300">+{{ formatNumber(slot.item.cost) }}{{ slot.item.currency === 'vespene' ? 'V' : 'M' }}</span>
@@ -172,11 +227,11 @@ function handleBuy(item: Item) {
             </span>
             <button 
               @click="handleBuy(item)"
-              :disabled="!canAfford(item, minerals, vespeneGas) || !hasEmptySlot"
+              :disabled="!canBuy(item)"
               class="px-4 py-2 rounded text-xs font-bold tracking-wider transition-all shadow-md"
-              :class="canAfford(item, minerals, vespeneGas) && hasEmptySlot ? 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer shadow-amber-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
+              :class="canBuy(item) ? 'bg-amber-600 hover:bg-amber-500 text-white cursor-pointer shadow-amber-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
             >
-              {{ !hasEmptySlot ? 'INVENTARIS VOL' : (canAfford(item, minerals, vespeneGas) ? 'KOOP ITEM' : 'TE WEINIG FUNDS') }}
+              {{ buttonLabel(item) }}
             </button>
           </div>
         </div>

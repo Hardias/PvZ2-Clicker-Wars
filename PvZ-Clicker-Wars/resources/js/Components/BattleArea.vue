@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { ProbeBase } from '../types/ProbeBase';
 import { formatNumber } from '../utils/format';
+import { getRankName, isSsRank } from '../utils/ranks';
 
 interface Props {
   probeBase: ProbeBase;
@@ -25,19 +26,23 @@ const upgradeProgressPercentage = computed(() => {
   return Math.min(100, Math.max(0, ((base.maxUpgradeTime - base.timeUntilUpgrade) / base.maxUpgradeTime) * 100));
 });
 
+const wallCycleName = computed(() => getRankName(props.probeBase.wallCycle || 0));
+
+// From Wall Lv 1 (D- Rank) onwards the wall's rank is visible on the wall itself, following the probe rank ladder
 const wallDisplayName = computed(() => {
   const base = props.probeBase;
   if (base.rareType === 'pather') {
     return `Pather Wall (${base.patherWallsRemaining || 0}/50)`;
   }
+  const rank = `${wallCycleName.value} Rank`;
   const tier = base.wall.tier;
   switch (tier) {
-    case 'wall': return 'Wall';
-    case 'ultra': return 'Ultra Wall';
-    case 'mega': return 'Mega Wall';
-    case 'power': return 'Power Wall';
-    case 'final': return 'Final Wall';
-    default: return 'Wall';
+    case 'wall': return `${rank} Wall`;
+    case 'ultra': return `${rank} Ultra Wall`;
+    case 'mega': return `${rank} Mega Wall`;
+    case 'power': return `${rank} Power Wall`;
+    case 'final': return `${rank} Final Wall`;
+    default: return `${rank} Wall`;
   }
 });
 
@@ -67,6 +72,8 @@ const abilityDescription = computed(() => {
   return 'Immobiliseert Zealot voor 4s (45s cooldown)';
 });
 
+const isSs = computed(() => isSsRank(props.probeBase.rankIndex));
+
 function formatTimer(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   if (Number.isInteger(rounded)) {
@@ -82,7 +89,13 @@ function formatTimer(value: number): string {
     <div class="w-full flex justify-between items-center border-b border-cyan-800/50 pb-3">
       <div>
         <span class="text-xs text-gray-400">DEFENDING PROBE</span>
-        <h3 class="text-xl font-bold tracking-wider text-amber-400">RANK: {{ probeBase.rankName }}</h3>
+        <h3
+          class="text-xl font-bold tracking-wider transition-colors"
+          :class="isSs ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'text-amber-400'"
+        >
+          {{ isSs ? '⚡ ' : '' }}RANK: {{ probeBase.rankName }}<span v-if="isSs" class="text-cyan-300 text-xs align-top ml-1">⛔</span>
+        </h3>
+        <span class="text-[10px] text-cyan-500 font-bold tracking-wider">WALL CYCLE: {{ wallCycleName }}</span>
       </div>
       <div class="flex space-x-2">
         <div class="bg-cyan-950 px-3 py-1.5 rounded border border-cyan-700/50 text-xs flex items-center space-x-1">
@@ -100,6 +113,14 @@ function formatTimer(value: number): string {
       🛡️ CLANNED PROBE [{{ probeBase.clanName || 'Clan' }}] (3x HP & Turrets)
     </div>
 
+    <!-- SS Elite Probe Banner (Always takes up layout space, invisible when inactive) -->
+    <div 
+      class="w-full my-1.5 bg-gradient-to-r from-amber-950 via-yellow-950 to-amber-950 border border-amber-400/70 rounded-lg py-1.5 px-3 text-center text-amber-200 font-bold text-xs shadow-lg transition-opacity select-none"
+      :class="isSs ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
+    >
+      ⚡ SS ELITE PROBE — GOLDEN AURA (wall regen, elite abilities, trage upgrades) ⚡
+    </div>
+
     <!-- Rare Probe Banner (Always takes up layout space, invisible when inactive) -->
     <div 
       class="w-full my-1 bg-gradient-to-r from-purple-950 via-amber-950 to-purple-950 border border-amber-500/60 rounded-lg py-1.5 px-3 text-center text-amber-300 font-bold text-xs shadow-lg transition-opacity select-none"
@@ -112,7 +133,7 @@ function formatTimer(value: number): string {
     <div class="my-3 w-full flex flex-col items-center">
       <div 
         class="relative w-full max-w-md bg-gray-950 border-2 rounded-xl p-6 shadow-2xl flex flex-col items-center cursor-pointer select-none transition-transform active:scale-[0.99]"
-        :class="isImmobilized ? 'border-purple-500/80 bg-purple-950/20' : 'border-cyan-500/60'"
+        :class="isImmobilized ? 'border-purple-500/80 bg-purple-950/20' : (isSs ? 'border-amber-400/80 shadow-amber-950/50' : 'border-cyan-500/60')"
         @click="emit('attack')"
       >
         
@@ -122,7 +143,7 @@ function formatTimer(value: number): string {
             🤖
           </div>
           <div>
-            <div class="text-sm font-bold text-cyan-300">Probe Command (Rank {{ probeBase.rankName }})</div>
+            <div class="text-sm font-bold text-cyan-300">Probe Command (Rank <span :class="isSs ? 'text-amber-300' : ''">{{ probeBase.rankName }}</span>)</div>
             <div class="text-xs text-gray-400">
               {{ isImmobilized ? '⚠️ ZEALOT IMMOBILISEERD DOOR VOID PRISM!' : `Klik om muur aan te vallen! (-${formatNumber(attackPower)} DMG)` }}
             </div>
@@ -158,11 +179,10 @@ function formatTimer(value: number): string {
 
         <!-- Auto Repair Indicator with Reserved Space -->
         <div class="w-full text-center mb-2 h-6 flex items-center justify-center">
-          <span 
-            class="text-[10px] bg-red-950/80 text-red-300 px-2.5 py-0.5 rounded-full border border-red-700/50 animate-pulse transition-opacity duration-200"
+          <span class="text-[10px] bg-red-950/80 text-red-300 px-2.5 py-0.5 rounded-full border border-red-700/50 animate-pulse transition-opacity duration-200"
             :class="probeBase.wall.currentHp < probeBase.wall.maxHp ? 'opacity-100 visible' : 'opacity-0 invisible'"
           >
-            ⚡ PROBES AUTO-REPARATIE ({{ probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%') }} HP/s) ⚡
+            ⚡ {{ isSs ? 'SS GOLDEN AURA' : 'PROBES AUTO-REPARATIE' }} ({{ isSs ? '25% + 2%' : (probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%')) }} HP/s) ⚡
           </span>
         </div>
 
@@ -170,7 +190,7 @@ function formatTimer(value: number): string {
         <div class="w-full bg-gray-900 p-4 rounded-lg border border-cyan-800/40 mb-3">
           <div class="flex justify-between text-xs mb-1.5 font-bold uppercase tracking-wider">
             <span class="text-cyan-400">
-              {{ wallDisplayName }} <span v-if="probeBase.wall.tier !== 'pather' && probeBase.wall.tier !== 'final'">(Lv. {{ probeBase.wall.level }})</span>
+              {{ wallDisplayName }} <span v-if="probeBase.rareType !== 'pather' && probeBase.wall.tier !== 'final'">(Lv. {{ probeBase.wall.level }})</span>
             </span>
             <span class="font-mono">{{ formatNumber(probeBase.wall.currentHp) }} / {{ formatNumber(probeBase.wall.maxHp) }}</span>
           </div>
