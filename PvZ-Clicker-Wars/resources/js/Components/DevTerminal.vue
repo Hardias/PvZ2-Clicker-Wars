@@ -115,7 +115,7 @@ function handleSubmit() {
 </script>
 
 <template>
-  <div class="fixed bottom-16 left-4 z-50 w-[420px] max-w-[calc(100vw-2rem)] bg-black border-2 border-green-600 rounded-lg shadow-2xl shadow-green-900/50 font-mono overflow-hidden">
+  <div class="fixed bottom-[calc(env(safe-area-inset-bottom)+4rem)] left-3 right-3 sm:left-4 sm:right-auto z-50 w-auto sm:w-[420px] sm:max-w-[calc(100vw-2rem)] bg-black border-2 border-green-600 rounded-lg shadow-2xl shadow-green-900/50 font-mono overflow-hidden">
     <!-- Terminal Header Bar -->
     <div class="flex justify-between items-center bg-gray-900 border-b border-green-800 px-3 py-1.5">
       <span class="text-[10px] font-bold text-green-500 tracking-widest uppercase">DEV TERMINAL</span>

@@ -84,22 +84,22 @@ function formatTimer(value: number): string {
 </script>
 
 <template>
-  <div class="bg-gray-900 border border-cyan-500/40 rounded-lg p-6 text-cyan-100 shadow-xl shadow-cyan-950/60 flex flex-col items-center justify-between min-h-[420px]">
+  <div class="bg-gray-900 border border-cyan-500/40 rounded-lg p-4 sm:p-6 text-cyan-100 shadow-xl shadow-cyan-950/60 flex flex-col items-center justify-between min-h-[360px] sm:min-h-[420px]">
     <!-- Header / Probe Rank & Kills info -->
-    <div class="w-full flex justify-between items-center border-b border-cyan-800/50 pb-3">
-      <div>
-        <span class="text-xs text-gray-400">DEFENDING PROBE</span>
+    <div class="flex justify-between items-center border-b border-cyan-800/50 pb-3 gap-2">
+      <div class="min-w-0">
+        <span class="text-[10px] sm:text-xs text-gray-400">DEFENDING PROBE</span>
         <h3
-          class="text-xl font-bold tracking-wider transition-colors"
+          class="text-lg sm:text-xl font-bold tracking-wider transition-colors truncate"
           :class="isSs ? 'text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'text-amber-400'"
         >
           {{ isSs ? '⚡ ' : '' }}RANK: {{ probeBase.rankName }}<span v-if="isSs" class="text-cyan-300 text-xs align-top ml-1">⛔</span>
         </h3>
         <span class="text-[10px] text-cyan-500 font-bold tracking-wider">WALL CYCLE: {{ wallCycleName }}</span>
       </div>
-      <div class="flex space-x-2">
-        <div class="bg-cyan-950 px-3 py-1.5 rounded border border-cyan-700/50 text-xs flex items-center space-x-1">
-          <span>Kills:</span>
+      <div class="flex space-x-2 shrink-0">
+        <div class="bg-cyan-950 px-2.5 sm:px-3 py-1.5 rounded border border-cyan-700/50 text-xs flex items-center space-x-1">
+          <span class="hidden sm:inline">Kills:</span>
           <span class="text-amber-300 font-mono font-bold">{{ probeBase.probeKills }}</span>
         </div>
       </div>
@@ -132,7 +132,7 @@ function formatTimer(value: number): string {
     <!-- Probe Base Interactive Arena -->
     <div class="my-3 w-full flex flex-col items-center">
       <div 
-        class="relative w-full max-w-md bg-gray-950 border-2 rounded-xl p-6 shadow-2xl flex flex-col items-center cursor-pointer select-none transition-transform active:scale-[0.99]"
+        class="relative w-full max-w-md bg-gray-950 border-2 rounded-xl p-4 sm:p-6 shadow-2xl flex flex-col items-center cursor-pointer select-none transition-transform active:scale-[0.98] touch-manipulation data-clickable"
         :class="isImmobilized ? 'border-purple-500/80 bg-purple-950/20' : (isSs ? 'border-amber-400/80 shadow-amber-950/50' : 'border-cyan-500/60')"
         @click="emit('attack')"
       >
@@ -188,11 +188,11 @@ function formatTimer(value: number): string {
 
         <!-- Wall Defense Bar -->
         <div class="w-full bg-gray-900 p-4 rounded-lg border border-cyan-800/40 mb-3">
-          <div class="flex justify-between text-xs mb-1.5 font-bold uppercase tracking-wider">
+          <div class="flex flex-wrap justify-between gap-x-2 gap-y-0.5 text-xs mb-1.5 font-bold uppercase tracking-wider">
             <span class="text-cyan-400">
               {{ wallDisplayName }} <span v-if="probeBase.rareType !== 'pather' && probeBase.wall.tier !== 'final'">(Lv. {{ probeBase.wall.level }})</span>
             </span>
-            <span class="font-mono">{{ formatNumber(probeBase.wall.currentHp) }} / {{ formatNumber(probeBase.wall.maxHp) }}</span>
+            <span class="font-mono whitespace-nowrap">{{ formatNumber(probeBase.wall.currentHp) }} / {{ formatNumber(probeBase.wall.maxHp) }}</span>
           </div>
           <div class="w-full bg-gray-800 h-4 rounded-full overflow-hidden border border-cyan-700/40">
             <div class="bg-gradient-to-r from-amber-600 to-amber-400 h-full transition-all duration-150" :style="{ width: `${wallHpPercentage}%` }"></div>

@@ -485,9 +485,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black">
-    <!-- Solid background layer -->
-    <div class="fixed inset-0 bg-gray-950" style="z-index: 0;"></div>
+  <div class="min-h-[100dvh] text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black">
+    <!-- Solid background layer (Protoss glow) -->
+    <div class="fixed inset-0 protoss-bg" style="z-index: 0;"></div>
 
     <!-- Audio Equalizer Visualizer (above background, below content) -->
     <AudioVisualizer
@@ -503,7 +503,6 @@ onUnmounted(() => {
       :minerals="zealotState.minerals" 
       :vespeneGas="zealotState.vespeneGas"
       :infiniteVespene="zealotState.infiniteVespene"
-      v-model:currentView="currentView"
       :autosaveEnabled="autosaveEnabled"
       :musicVolume="audio.musicVolume.value"
       :sfxVolume="audio.sfxVolume.value"
@@ -523,11 +522,56 @@ onUnmounted(() => {
       @openTutorial="handleOpenTutorial"
     />
 
-    <!-- Main Content Layout: Left (Stats), Center (Battle/Shop), Right (Equipment 6 flexible slots) -->
-    <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-      
-      <!-- Left Column: Zealot Stats -->
-      <div class="space-y-6 lg:col-span-1">
+    <!-- Sticky View Switcher (BATTLE / SHOP) -->
+    <nav class="sticky top-0 z-40 bg-gray-950/95 backdrop-blur-md border-b border-cyan-800/60 shadow-lg">
+      <div class="max-w-7xl mx-auto flex gap-1 p-1.5 px-3 sm:px-6">
+        <button
+          @click="currentView = 'battle'"
+          class="flex-1 sm:flex-none sm:px-6 py-2.5 sm:py-2 rounded-lg text-xs font-bold transition-all"
+          :class="currentView === 'battle' ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30' : 'text-gray-400 hover:text-gray-200'"
+        >
+          ⚔️ BATTLE AREA
+        </button>
+        <button
+          @click="currentView = 'shop'"
+          class="flex-1 sm:flex-none sm:px-6 py-2.5 sm:py-2 rounded-lg text-xs font-bold transition-all"
+          :class="currentView === 'shop' ? 'bg-amber-500 text-black font-extrabold ring-2 ring-amber-300 shadow-md scale-105' : 'text-gray-400 hover:text-gray-200'"
+        >
+          🏛️ ZEALOT SHOP
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Content Layout: mobile = Battle (primary) > Stats > Equipment; lg = Stats | Battle | Equipment -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start">
+
+      <!-- Primary Column: Battle Area or Shop Base view (first on mobile) -->
+      <div class="order-1 lg:order-2 lg:col-span-1">
+        <div v-if="currentView === 'battle'">
+          <BattleArea 
+            :probeBase="probeBase"
+            :attackPower="attackPower"
+            :isImmobilized="zealotState.isImmobilized"
+            @attack="handleAttack"
+          />
+        </div>
+
+        <div v-else class="bg-gray-900 border border-cyan-500/40 rounded-lg p-5 sm:p-6 text-center shadow-xl">
+          <h2 class="text-xl sm:text-2xl font-bold text-amber-400 mb-2">ZEALOT SHOPPING AREA</h2>
+          <p class="text-xs sm:text-sm text-gray-400 mb-6">
+            You are at the Zealot Shop Base. Your HP is rapidly regenerating (+2,048,000 HP/s Final Regen). Turrets have ceased fire.
+          </p>
+          <button 
+            @click="showShopModal = true"
+            class="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-4 sm:py-3 rounded-lg shadow-lg shadow-amber-600/30 transition-all text-sm tracking-wider"
+          >
+            OPEN ZEALOT SHOP ({{ shopItems.length }} Items Available)
+          </button>
+        </div>
+      </div>
+
+      <!-- Left Column (desktop): Zealot Stats -->
+      <div class="order-2 lg:order-1 lg:col-span-1 space-y-4 sm:space-y-6">
         <ZealotStatsComponent 
           :zealot="zealotState"
           :maxHp="maxHp"
@@ -540,33 +584,8 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- Center Column: Battle Area or Shop Base view -->
-      <div class="lg:col-span-1">
-        <div v-if="currentView === 'battle'">
-          <BattleArea 
-            :probeBase="probeBase"
-            :attackPower="attackPower"
-            :isImmobilized="zealotState.isImmobilized"
-            @attack="handleAttack"
-          />
-        </div>
-
-        <div v-else class="bg-gray-900 border border-cyan-500/40 rounded-lg p-6 text-center shadow-xl">
-          <h2 class="text-2xl font-bold text-amber-400 mb-2">ZEALOT SHOPPING AREA</h2>
-          <p class="text-sm text-gray-400 mb-6">
-            You are at the Zealot Shop Base. Your HP is rapidly regenerating (+2,048,000 HP/s Final Regen). Turrets have ceased fire.
-          </p>
-          <button 
-            @click="showShopModal = true"
-            class="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-lg shadow-lg shadow-amber-600/30 transition-all text-sm tracking-wider"
-          >
-            OPEN ZEALOT SHOP ({{ shopItems.length }} Items Available)
-          </button>
-        </div>
-      </div>
-
-      <!-- Right Column: Equipment Grid (6 Flexible Slots) -->
-      <div class="lg:col-span-1">
+      <!-- Right Column (desktop): Equipment Grid (6 Flexible Slots) -->
+      <div class="order-3 lg:order-3 lg:col-span-1">
         <InventoryGrid :slots="slots" @unequip="handleUnequip" />
       </div>
 
@@ -617,7 +636,7 @@ onUnmounted(() => {
     <!-- TEMPORARY DISABLE PATHER (Toggle button, bottom right) -->
     <button 
       @click="toggleDisablePather"
-      class="fixed bottom-4 right-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all"
+      class="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] right-3 sm:right-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all"
       :class="disablePather ? 'bg-red-950 text-red-200 border-red-500 shadow-red-500/30' : 'bg-gray-900 text-gray-300 border-gray-700 hover:bg-gray-800'"
       title="Toggle disable Pather probes (Rerolls if active)"
     >
@@ -628,7 +647,7 @@ onUnmounted(() => {
     <!-- DEV Tools Terminal (Toggle button, bottom left) -->
     <button
       @click="showDevTerminal = !showDevTerminal"
-      class="fixed bottom-4 left-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all bg-black text-green-400 border-green-700 hover:bg-gray-900"
+      class="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 sm:left-4 text-xs font-bold px-3 py-2 rounded-lg shadow-2xl border z-50 flex items-center space-x-1.5 cursor-pointer transition-all bg-black text-green-400 border-green-700 hover:bg-gray-900"
       title="DEV Tools (secret terminal)"
     >
       <span>⚙️</span>
@@ -650,7 +669,7 @@ onUnmounted(() => {
       leave-from-class="opacity-100 translate-y-0"
       leave-to-class="opacity-100 translate-y-0"
     >
-      <div v-if="autoSaveNotification" class="fixed bottom-16 right-4 bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center space-x-2 backdrop-blur-sm">
+      <div v-if="autoSaveNotification" class="fixed bottom-[calc(env(safe-area-inset-bottom)+4rem)] right-3 sm:right-4 left-3 sm:left-auto bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center justify-center sm:justify-start space-x-2 backdrop-blur-sm">
         <span class="text-sm">💾</span>
         <span><span>{{ saveNotificationText }}</span></span>
       </div>

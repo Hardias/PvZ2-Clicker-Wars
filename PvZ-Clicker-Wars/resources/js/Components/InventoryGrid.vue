@@ -17,7 +17,7 @@ const emit = defineEmits<{
       <h2 class="text-lg font-bold tracking-wider text-cyan-400">EQUIPMENT (6 SLOTS)</h2>
     </div>
 
-    <div class="grid grid-cols-3 gap-3">
+    <div class="grid grid-cols-3 gap-2.5">
       <div 
         v-for="(slot, index) in slots" 
         :key="index"
@@ -28,7 +28,27 @@ const emit = defineEmits<{
           {{ index + 1 }}
         </div>
 
-        <div v-if="slot.item" class="text-center mt-3">
+        <!-- Touch-friendly remove (always visible on mobile, small ✕ badge) -->
+        <button
+          v-if="slot.item"
+          @click.stop="emit('unequip', index)"
+          class="absolute top-1 right-1 z-10 w-5 h-5 rounded-md bg-red-950/90 hover:bg-red-800 text-red-300 text-[10px] font-bold leading-none flex items-center justify-center border border-red-700/60 cursor-pointer opacity-80"
+          :title="`Sell ${slot.item.name}`"
+        >
+          ✕
+        </button>
+
+        <!-- Desktop hover remove overlay -->
+        <button
+          v-if="slot.item"
+          @click.stop="emit('unequip', index)"
+          class="absolute inset-0 bg-red-950/90 text-red-200 text-xs font-bold hidden sm:flex sm:opacity-0 sm:group-hover:opacity-100 transition-opacity items-center justify-center rounded-lg cursor-pointer"
+          :title="`Sell ${slot.item.name}`"
+        >
+          Remove
+        </button>
+
+        <div v-if="slot.item" class="text-center mt-3 px-1.5">
           <div class="text-xs font-bold text-cyan-200 truncate max-w-[90px]">{{ slot.item.name }}</div>
           <div class="text-[10px] text-green-400 font-mono mt-1">
             <span v-if="slot.item.stats.damage">+{{ slot.item.stats.damage }} DMG</span>
@@ -37,12 +57,6 @@ const emit = defineEmits<{
             <span v-else-if="slot.item.stats.defense">+{{ slot.item.stats.defense }} DEF</span>
             <span v-else-if="slot.item.stats.hpRegen">+{{ slot.item.stats.hpRegen }} REG</span>
           </div>
-          <button 
-            @click="emit('unequip', index)" 
-            class="absolute inset-0 bg-red-950/90 text-red-200 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg"
-          >
-            Remove
-          </button>
         </div>
       </div>
     </div>

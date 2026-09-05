@@ -1,3 +1,47 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: #030712;
+    overscroll-behavior-y: none;
+  }
+
+  button,
+  [role='button'],
+  [data-clickable] {
+    touch-action: manipulation;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .protoss-bg {
+    background-color: #030712;
+    background-image:
+      radial-gradient(ellipse 80% 55% at 50% -12%, rgba(34, 211, 238, 0.09), transparent 62%),
+      radial-gradient(ellipse 60% 45% at 92% 108%, rgba(245, 158, 11, 0.06), transparent 60%),
+      radial-gradient(ellipse 45% 35% at 5% 100%, rgba(34, 211, 238, 0.05), transparent 60%),
+      linear-gradient(rgba(34, 211, 238, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(34, 211, 238, 0.035) 1px, transparent 1px);
+    background-size:
+      auto,
+      auto,
+      auto,
+      48px 48px,
+      48px 48px;
+  }
+}

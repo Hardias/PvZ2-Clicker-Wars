@@ -22,8 +22,8 @@ function formatDate(timestamp: number | null): string {
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-gray-900 border-2 border-cyan-500/60 rounded-xl p-6 max-w-md w-full shadow-2xl text-cyan-100 flex flex-col space-y-5 animate-in fade-in zoom-in duration-200">
+  <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 overflow-y-auto p-4 flex">
+    <div class="bg-gray-900 border-2 border-cyan-500/60 rounded-xl p-6 max-w-md w-full shadow-2xl text-cyan-100 flex flex-col space-y-5 m-auto">
       
       <div class="flex justify-between items-center border-b border-cyan-800/60 pb-3">
         <h2 class="text-xl font-bold tracking-wider text-amber-400 flex items-center space-x-2">

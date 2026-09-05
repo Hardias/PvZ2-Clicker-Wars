@@ -50,8 +50,8 @@ function previousStep() {
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-    <div class="bg-gray-900 border-2 border-cyan-500 rounded-xl p-6 max-w-lg w-full text-cyan-100 shadow-2xl shadow-cyan-500/25">
+  <div class="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] overflow-y-auto p-4 flex items-center justify-center">
+    <div class="bg-gray-900 border-2 border-cyan-500 rounded-xl p-6 max-w-lg w-full text-cyan-100 shadow-2xl shadow-cyan-500/25 my-auto">
       <!-- Header -->
       <div class="flex justify-between items-center border-b border-cyan-800 pb-4 mb-4">
         <div class="flex items-center space-x-2">
