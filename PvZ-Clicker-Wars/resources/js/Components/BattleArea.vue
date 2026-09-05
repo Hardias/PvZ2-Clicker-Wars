@@ -105,30 +105,6 @@ function formatTimer(value: number): string {
       </div>
     </div>
 
-    <!-- Clanned Probe Banner (Always takes up layout space, invisible when inactive) -->
-    <div 
-      class="w-full my-1.5 bg-gradient-to-r from-blue-950 via-cyan-950 to-blue-950 border border-cyan-400/60 rounded-lg py-1.5 px-3 text-center text-cyan-200 font-bold text-xs shadow-lg transition-opacity select-none"
-      :class="probeBase.isClanned ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
-    >
-      🛡️ CLANNED PROBE [{{ probeBase.clanName || 'Clan' }}] (3x HP & Turrets)
-    </div>
-
-    <!-- SS Elite Probe Banner (Always takes up layout space, invisible when inactive) -->
-    <div 
-      class="w-full my-1.5 bg-gradient-to-r from-amber-950 via-yellow-950 to-amber-950 border border-amber-400/70 rounded-lg py-1.5 px-3 text-center text-amber-200 font-bold text-xs shadow-lg transition-opacity select-none"
-      :class="isSs ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
-    >
-      ⚡ SS ELITE PROBE — GOLDEN AURA (wall regen, elite abilities, slow upgrades) ⚡
-    </div>
-
-    <!-- Rare Probe Banner (Always takes up layout space, invisible when inactive) -->
-    <div 
-      class="w-full my-1 bg-gradient-to-r from-purple-950 via-amber-950 to-purple-950 border border-amber-500/60 rounded-lg py-1.5 px-3 text-center text-amber-300 font-bold text-xs shadow-lg transition-opacity select-none"
-      :class="probeBase.isRare ? 'opacity-100 visible animate-pulse' : 'opacity-0 invisible pointer-events-none'"
-    >
-      {{ rareProbeLabel || 'Rare Probe' }}
-    </div>
-
     <!-- Probe Base Interactive Arena -->
     <div class="my-3 w-full flex flex-col items-center">
       <div 
@@ -216,6 +192,21 @@ function formatTimer(value: number): string {
         <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
           {{ isImmobilized ? '🛑 ZEALOT CANNOT ATTACK WHILE IMMOBILIZED! 🛑' : '⚡ CLICK HERE TO ATTACK THE WALL ⚡' }}
         </div>
+      </div>
+    </div>
+
+    <!-- Special probe status banners (below the arena, so the attack button stays at the top) -->
+    <div class="w-full space-y-1.5 mt-3 mb-1">
+      <div v-if="probeBase.isClanned" class="w-full bg-gradient-to-r from-blue-950 via-cyan-950 to-blue-950 border border-cyan-400/60 rounded-lg py-1.5 px-3 text-center text-cyan-200 font-bold text-xs shadow-lg animate-pulse select-none">
+        🛡️ CLANNED PROBE [{{ probeBase.clanName || 'Clan' }}] (3x HP &amp; Turrets)
+      </div>
+
+      <div v-if="isSs" class="w-full bg-gradient-to-r from-amber-950 via-yellow-950 to-amber-950 border border-amber-400/70 rounded-lg py-1.5 px-3 text-center text-amber-200 font-bold text-xs shadow-lg animate-pulse select-none">
+        ⚡ SS ELITE PROBE — GOLDEN AURA (wall regen, elite abilities, slow upgrades) ⚡
+      </div>
+
+      <div v-if="probeBase.isRare" class="w-full bg-gradient-to-r from-purple-950 via-amber-950 to-purple-950 border border-amber-500/60 rounded-lg py-1.5 px-3 text-center text-amber-300 font-bold text-xs shadow-lg animate-pulse select-none">
+        {{ rareProbeLabel || 'Rare Probe' }}
       </div>
     </div>
 
