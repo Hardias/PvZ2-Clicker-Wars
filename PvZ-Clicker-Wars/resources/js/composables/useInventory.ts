@@ -1,10 +1,33 @@
 import { ref, computed } from 'vue';
 import { Item, InventorySlot, ItemStats } from '../types/Item';
+import { big, desBig, BigNum } from '../utils/bigNumber';
 
 /**
  * Composable managing Zealot 6-slot inventory, item equipping, unequipping, and combined equipment stats.
  */
 export function useInventory() {
+  /** Deserialize a saved item (legacy numeric saves get upgraded to Decimals). */
+  function deserializeItem(item: any): Item {
+    const stats = item?.stats || {};
+    return {
+      id: item?.id || '',
+      name: item?.name || 'Unknown item',
+      category: item?.category || 'blades',
+      rarity: item?.rarity || 'common',
+      stats: {
+        damage: stats.damage !== undefined ? desBig(stats.damage, 0) : undefined,
+        attackSpeed: typeof stats.attackSpeed === 'number' ? stats.attackSpeed : undefined,
+        hp: stats.hp !== undefined ? desBig(stats.hp, 0) : undefined,
+        defense: stats.defense !== undefined ? desBig(stats.defense, 0) : undefined,
+        defenseReduction: typeof stats.defenseReduction === 'number' ? stats.defenseReduction : undefined,
+        hpRegen: stats.hpRegen !== undefined ? desBig(stats.hpRegen, 0) : undefined,
+      },
+      cost: desBig(item?.cost, 0),
+      currency: item?.currency || 'minerals',
+      description: item?.description || '',
+    };
+  }
+
   /** Load initial 6 equipment slots from storage or empty slots */
   function loadInitialSlots(): InventorySlot[] {
     try {
@@ -16,7 +39,7 @@ export function useInventory() {
           return savedSlots.map((s, idx) => ({
             slotIndex: idx,
             category: s.item ? s.item.category : 'blades',
-            item: s.item || null,
+            item: s.item ? deserializeItem(s.item) : null,
           }));
         }
       }
@@ -39,12 +62,12 @@ export function useInventory() {
   // Compute total aggregated stats across all equipped items in the 6 slots
   const totalEquipmentStats = computed<ItemStats & { hasGloves: boolean; totalDefenseReduction: number }>(() => {
     const stats: ItemStats & { hasGloves: boolean; totalDefenseReduction: number } = {
-      damage: 0,
+      damage: big(0),
       attackSpeed: 0,
-      hp: 0,
-      defense: 0,
+      hp: big(0),
+      defense: big(0),
       defenseReduction: 0,
-      hpRegen: 0,
+      hpRegen: big(0),
       hasGloves: false,
       totalDefenseReduction: 0,
     };
@@ -57,10 +80,10 @@ export function useInventory() {
 
     for (const slot of slots.value) {
       if (slot.item) {
-        if (slot.item.stats.damage) stats.damage! += slot.item.stats.damage;
-        if (slot.item.stats.hp) stats.hp! += slot.item.stats.hp;
-        if (slot.item.stats.defense) stats.defense! += slot.item.stats.defense;
-        if (slot.item.stats.hpRegen) stats.hpRegen! += slot.item.stats.hpRegen;
+        if (slot.item.stats.damage) stats.damage = (stats.damage as BigNum).add(slot.item.stats.damage);
+        if (slot.item.stats.hp) stats.hp = (stats.hp as BigNum).add(slot.item.stats.hp);
+        if (slot.item.stats.defense) stats.defense = (stats.defense as BigNum).add(slot.item.stats.defense);
+        if (slot.item.stats.hpRegen) stats.hpRegen = (stats.hpRegen as BigNum).add(slot.item.stats.hpRegen);
 
         let spd = slot.item.stats.attackSpeed || 0;
         if (slot.item.category === 'blades' && slot.item.currency === 'vespene') {
@@ -109,7 +132,7 @@ export function useInventory() {
       slots.value = savedSlots.map((s, idx) => ({
         slotIndex: idx,
         category: s.item ? s.item.category : 'blades',
-        item: s.item || null,
+        item: s.item ? deserializeItem(s.item) : null,
       }));
     }
   }

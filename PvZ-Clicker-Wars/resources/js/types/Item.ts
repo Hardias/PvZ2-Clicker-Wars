@@ -1,14 +1,20 @@
+import { BigNum } from '../utils/bigNumber';
+
 export type ItemCategory = 'blades' | 'gloves' | 'amulet' | 'armor' | 'trinket' | 'final';
 
 export type ItemRarity = 'common' | 'rare' | 'epic' | 'legendary';
 
+// Loose numeric union so the hand-authored base catalog stays type-safe: raw items use plain
+// numbers, runtime/derived items use Decimals (coerce with big()/desBig()).
+export type LooseNumber = BigNum | number;
+
 export interface ItemStats {
-  damage?: number;
-  attackSpeed?: number;
-  hp?: number;
-  defense?: number;
-  defenseReduction?: number; // 0 to 1 (e.g. 0.09 for 9%)
-  hpRegen?: number;
+  damage?: LooseNumber;
+  attackSpeed?: number; // % attack speed bonus (0-1e6% cap)
+  hp?: LooseNumber;
+  defense?: LooseNumber;
+  defenseReduction?: number; // 0 to <1 (e.g. 0.09 for 9%) — stays a plain number
+  hpRegen?: LooseNumber;
 }
 
 export interface Item {
@@ -17,7 +23,7 @@ export interface Item {
   category: ItemCategory;
   rarity: ItemRarity;
   stats: ItemStats;
-  cost: number;
+  cost: LooseNumber;
   currency: 'minerals' | 'vespene';
   description: string;
 }

@@ -17,7 +17,7 @@ interface AudioNodes {
   musicCompressor: DynamicsCompressorNode;
   sfxGain: GainNode;
   analyser: AnalyserNode;
-  freqData: Uint8Array;
+  freqData: Uint8Array<ArrayBuffer>;
 }
 
 function loadNumber(key: string, fallback: number): number {

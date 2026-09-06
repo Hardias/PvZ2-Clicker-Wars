@@ -104,7 +104,7 @@ function previousStep() {
           @click="nextStep"
           class="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 py-3 rounded-lg shadow-lg shadow-amber-600/30 transition-all text-sm tracking-wider cursor-pointer"
         >
-          {{ isLastStep ? '⚡ BEGIN YOUR JOURNEY!' : 'NEXT ▶' }}
+          {{ isLastStep() ? '⚡ BEGIN YOUR JOURNEY!' : 'NEXT ▶' }}
         </button>
       </div>
     </div>

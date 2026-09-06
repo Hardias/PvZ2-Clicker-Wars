@@ -3,10 +3,11 @@ import { ref, computed } from 'vue';
 import { Item, ItemCategory, InventorySlot } from '../types/Item';
 import { formatNumber } from '../utils/format';
 import { getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
+import { BigNum, big } from '../utils/bigNumber';
 
 interface Props {
-  minerals: number;
-  vespeneGas: number;
+  minerals: BigNum;
+  vespeneGas: BigNum;
   infiniteVespene?: boolean;
   availableItems: Item[];
   slots: InventorySlot[];
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = ref<ItemCategory>('blades');
-const maxPossibleV = computed(() => Math.floor(props.minerals / 64000));
+const maxPossibleV = computed(() => big(props.minerals).div(64000).floor().toNumber());
 
 const shopRankName = computed(() => getShopRankName(props.shopCycle));
 const shopMultiplierLabel = computed(() => getShopMultiplierLabel(props.shopCycle));
@@ -62,12 +63,12 @@ function buySlotFor(item: Item): number {
   return -1;
 }
 
-function canAfford(item: Item, minerals: number, vespene: number): boolean {
+function canAfford(item: Item, minerals: BigNum, vespene: BigNum): boolean {
   if (item.currency === 'vespene') {
     if (props.infiniteVespene) return true;
-    return vespene >= item.cost;
+    return big(vespene).gte(item.cost);
   }
-  return minerals >= item.cost;
+  return big(minerals).gte(item.cost);
 }
 
 function canBuy(item: Item): boolean {
@@ -169,6 +170,7 @@ function handleBuy(item: Item) {
 
               <!-- Desktop hover sell overlay -->
               <button 
+                v-if="slot.item"
                 @click.stop="emit('unequip', index)" 
                 class="absolute inset-0 bg-red-950/95 text-red-200 text-[10px] font-bold hidden sm:flex sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-col items-center justify-center rounded-lg cursor-pointer"
                 :title="`Sell ${slot.item.name} for ${formatNumber(slot.item.cost)}${slot.item.currency === 'vespene' ? 'V' : 'M'}`"
@@ -202,9 +204,9 @@ function handleBuy(item: Item) {
           </div>
           <button 
             @click="emit('convertMaxVespene')"
-            :disabled="minerals < 64000"
+            :disabled="minerals.lt(64000)"
             class="w-full sm:w-auto px-4 py-2 rounded text-xs font-bold transition-all shadow-lg"
-            :class="minerals >= 64000 ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer shadow-green-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
+            :class="minerals.gte(64000) ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer shadow-green-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
           >
             BUY MAX VESPENE ({{ maxPossibleV }}V)
           </button>
@@ -235,7 +237,7 @@ function handleBuy(item: Item) {
 
             <div class="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
               <span class="font-mono font-bold text-sm" :class="item.currency === 'vespene' ? 'text-green-400' : 'text-blue-400'">
-                {{ item.currency === 'vespene' ? `${item.cost}V` : `${formatNumber(item.cost)}M` }}
+                {{ item.currency === 'vespene' ? `${formatNumber(item.cost)}V` : `${formatNumber(item.cost)}M` }}
               </span>
               <button 
                 @click="handleBuy(item)"

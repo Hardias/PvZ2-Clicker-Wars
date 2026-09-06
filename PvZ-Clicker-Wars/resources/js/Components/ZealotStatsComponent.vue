@@ -3,22 +3,25 @@ import { computed } from 'vue';
 import { ZealotStats } from '../types/Zealot';
 import { ItemStats } from '../types/Item';
 import { formatNumber } from '../utils/format';
+import { BigNum, big } from '../utils/bigNumber';
 
 interface Props {
   zealot: ZealotStats;
-  maxHp: number;
-  attackPower: number;
+  maxHp: BigNum;
+  attackPower: BigNum;
   attackSpeed: number;
-  currentDps: number;
+  currentDps: BigNum;
   defense: number;
-  hpRegen: number;
+  hpRegen: BigNum;
   equipmentStats: ItemStats & { totalDefenseReduction?: number };
 }
 
 const props = defineProps<Props>();
 
 const hpPercentage = computed(() => {
-  return Math.min(100, Math.max(0, (props.zealot.hp / props.maxHp) * 100));
+  if (big(props.maxHp).lte(0)) return 0;
+  const pct = big(props.zealot.hp).div(props.maxHp).mul(100);
+  return Math.min(100, Math.max(0, pct.toNumber()));
 });
 
 function formatDefenseReduction(reduction: number): string {
@@ -31,10 +34,11 @@ function formatDefenseReduction(reduction: number): string {
   return String(rounded).replace('.', ',') + '%';
 }
 
-function formatDps(value: number): string {
-  if (value === 0) return '0';
-  if (value < 1000) return value.toFixed(1).replace(/\.0$/, '');
-  return formatNumber(value);
+function formatDps(value: BigNum | number): string {
+  const n = big(value).toNumber();
+  if (!n) return '0';
+  if (n < 1000) return n.toFixed(1).replace(/\.0$/, '');
+  return formatNumber(big(value));
 }
 </script>
 

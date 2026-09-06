@@ -1,11 +1,41 @@
 import { ref, computed } from 'vue';
+import Decimal from 'break_eternity.js';
 import { ProbeBase, Wall, WallTier, TurretInfo, RareProbeType } from '../types/ProbeBase';
 import { ZealotStats } from '../types/Zealot';
-import { getRankName, isSsRank, ssLevel, SS_START_INDEX } from '../utils/ranks';
-import { WALL_CYCLE_STEPS, WALL_LEVEL_GROWTH, WALL_TIER_GROWTH, WALL_CYCLE_BOUNDARY_GROWTH, WALL_FINAL_GROWTH_PER_CYCLE, SS_WALL_HP_PER_LEVEL, SS_DEFENSE_PER_LEVEL, SS_TURRET_POWER_PER_LEVEL, SS_TURRET_COUNT_PER_LEVEL, SS_REGEN_PER_SECOND } from '../utils/scaling';
+import { BigNum, BigSource, big, desBig } from '../utils/bigNumber';
+import { getRankName, isSsRank, ssLevel, SS_START_INDEX, TierId, getRankTier } from '../utils/ranks';
+import {
+  WALL_CYCLE_STEPS,
+  WALL_FINAL_GROWTH_PER_CYCLE,
+  CYCLE_STEP_MULTIPLIERS,
+  CYCLE_STEP_DEFENSE,
+  CYCLE_STEP_TIERS,
+  CYCLE_STEP_LEVELS,
+  CYCLE_TOTAL_GROWTH,
+  SS_WALL_HP_PER_LEVEL,
+  SS_DEFENSE_PER_LEVEL,
+  SS_TURRET_POWER_PER_LEVEL,
+  SS_TURRET_COUNT_PER_LEVEL,
+  SS_REGEN_PER_SECOND,
+  getTierFlags,
+  getTierConfig,
+  NOVA_VOLLEY_WINDOW,
+  NOVA_VOLLEY_DPS_MULT,
+  OVERDRIVE_RAMP_PER_SEC,
+  OVERDRIVE_CAP,
+  OVERDRIVE_FINAL_CAP,
+  PHASE_WALL_INTERVAL,
+  PHASE_WALL_WINDOW,
+  PHASE_WALL_FINAL_BONUS,
+  REALITY_DRIFT_CHANCE,
+  REALITY_DRIFT_FINAL_CHANCE,
+  REALITY_DRIFT_MAX_CHARGES,
+  REALITY_DRIFT_REVIVE_HP,
+} from '../utils/scaling';
 
 /**
- * Composable handling probe base combat, defenses, turret DPS, upgrade timers, and rare/clanned probe mechanics.
+ * Composable handling probe base combat, defenses, turret DPS, upgrade timers, rare/clanned probe
+ * mechanics, and the infinite SS+ milestone tiers (SS/SSS/X/XD/XRD/XRFD).
  */
 export function useCombat() {
   // Whether the zealot is currently engaged in active combat against turrets
@@ -15,7 +45,7 @@ export function useCombat() {
   const clanList = ['PvZWA', 'PvZMA', 'PvZAS', 'PvZNA', 'PvZ50', 'WBGA'];
 
   /** Calculate turret info (count, level, attack power) - turret damage halved to 20 base at level 1 */
-  function getTurretInfo(level: number, isGold = false): TurretInfo {
+  function getTurretInfo(level: number, isGold = false): { count: number; level: number; attackPower: number } {
     const basePower = Math.floor((40.0 * Math.pow(1.35, level - 1)) * 0.5); // Halved from 40 to 20 base at level 1
     const count = isGold ? 16 : 8; // Gold baser has double turrets (16)
     const attackPower = basePower * (isGold ? 2 : 1);
@@ -37,8 +67,7 @@ export function useCombat() {
   /**
    * Total real time (in seconds) for a probe to journey from rank D- (0) all the way to SS1 (263).
    * It is the sum of every per-rank upgrade time, evaluating each rank at its own wall cycle so the
-   * 10s floor cap dominates. This value is FROZEN once a probe reaches SS and defines how long
-   * SS1 -> SS2 (and every further SS level) takes.
+   * 10s floor cap dominates. Legacy reference: SS-tier probes use the 2640s SS-journey time.
    */
   function computeSsJourneyTime(): number {
     let total = 0;
@@ -47,6 +76,16 @@ export function useCombat() {
       total += calculateUpgradeTime(i, wallCycle);
     }
     return Math.round(total);
+  }
+
+  /** Frozen upgrade-timer for a given milestone tier (the longer journey manifests as tougher tiers). */
+  function computeTierJourneyTime(tier: TierId): number {
+    return getTierConfig(tier).timerSeconds;
+  }
+
+  /** Upgrade-timer for a specific SS level based on its tier (SS=2640s, SSS=3600s, X=4500s, XD=5400s, XRD=6300s, XRFD=7200s). */
+  function getSsJourneyTimeForLevel(ssLevelNum: number): number {
+    return computeTierJourneyTime(getRankTier(ssLevelNum));
   }
 
   /** Determine probe ability (Chrono or Void Prism) */
@@ -103,80 +142,79 @@ export function useCombat() {
     return 0;
   }
 
-  /** Wall & turret level are derived purely from the global upgrade counter (18 steps per cycle)
-   *  Wall 1-5 -> Ultra 1-5 -> Mega 1-5 -> Power 1-2 -> Final, then a new cycle starts at Wall 1
-   *  with 1.5x the previous final HP. SS-tier ranks (rankIndex >= SS_START_INDEX) apply a bonus. */
+  /**
+   * O(1) walk of the wall progression (2.4x faster than the old 18-step loop and works at any size):
+   * Wall 1-5 -> Ultra 1-5 -> Mega 1-5 -> Power 1-2 -> Final, then a new cycle with 1.5x the final HP.
+   * Exact closed-form formula (no intermediate rounding), so it behaves identically to the loop from
+   * cycle 0 onwards yet never overflows: HP stays exact all the way to XRFD and beyond.
+   */
   function computeWallFromCount(count: number, rareType: RareProbeType, isClanned: boolean, rankIndex = 0): Wall {
-    let tier: WallTier = 'wall';
-    let level = 1;
-    let maxHp = 200;
-    let defense = 2;
-    const ssBonus = isSsRank(rankIndex) ? ssLevel(rankIndex) : 0;
-    for (let step = 0; step < count; step++) {
-      if (tier === 'final') {
-        // Final upgrade trigger starts a new wall cycle: back to Wall Lv 1 with 1.5x the previous final HP
-        tier = 'wall';
-        level = 1;
-        maxHp = Math.floor(maxHp * WALL_CYCLE_BOUNDARY_GROWTH);
-        defense = 2;
-        continue;
-      }
-      const next = getNextWallTierAndLevel(tier, level);
-      const tierChanged = next.tier !== tier;
-      tier = next.tier;
-      level = next.level;
-      maxHp = Math.floor(maxHp * (tierChanged ? WALL_TIER_GROWTH : WALL_LEVEL_GROWTH));
-      defense += tierChanged ? 8 : 3;
-    }
+    const wallCycle = Math.floor(count / WALL_CYCLE_STEPS);
+    const pos = count >= 0 ? count % WALL_CYCLE_STEPS : 0;
+    const tier = CYCLE_STEP_TIERS[pos];
+    const level = CYCLE_STEP_LEVELS[pos];
+
+    let maxHp = big(200)
+      .mul(CYCLE_STEP_MULTIPLIERS[pos])
+      .mul(Decimal.pow(CYCLE_TOTAL_GROWTH, wallCycle))
+      .floor();
+    let defense = big(CYCLE_STEP_DEFENSE[pos]);
+
     // SS Governor bonus: harder walls & resists
-    if (ssBonus > 0) {
-      maxHp = Math.floor(maxHp * Math.pow(SS_WALL_HP_PER_LEVEL, ssBonus));
-      defense = Math.floor(defense * Math.pow(SS_DEFENSE_PER_LEVEL, ssBonus));
+    const ssLv = isSsRank(rankIndex) ? ssLevel(rankIndex) : 0;
+    if (ssLv > 0) {
+      maxHp = maxHp.mul(Decimal.pow(SS_WALL_HP_PER_LEVEL, ssLv)).floor();
+      defense = defense.mul(Decimal.pow(SS_DEFENSE_PER_LEVEL, ssLv)).floor();
     }
-    const wall: Wall = { tier, level, maxHp: Math.floor(maxHp), currentHp: Math.floor(maxHp), defense };
+
     if (rareType === 'doubleBaser') {
-      wall.maxHp *= 2;
-      wall.currentHp = wall.maxHp;
-      wall.defense *= 2;
+      maxHp = maxHp.mul(2);
+      defense = defense.mul(2);
     } else if (rareType === 'tripleBaser') {
-      wall.maxHp *= 3;
-      wall.currentHp = wall.maxHp;
-      wall.defense *= 3;
+      maxHp = maxHp.mul(3);
+      defense = defense.mul(3);
     }
     if (isClanned) {
-      wall.maxHp *= 3;
-      wall.currentHp = wall.maxHp;
+      maxHp = maxHp.mul(3);
     }
+
+    maxHp = maxHp.floor();
+    defense = defense.floor();
+
+    const wall: Wall = { tier, level, maxHp, currentHp: new Decimal(maxHp), defense };
     return wall;
   }
 
-  /** Turret level is derived from the global upgrade counter (level = count + 1), with rare/clan modifiers.
-   *  The per-level ramp (20 * 1.35^(level-1)) is kept, but the total is multiplied by the same
-   *  WALL_FINAL_GROWTH_PER_CYCLE factor that walls and shop items use per completed wall cycle.
-   *  Cycle 0 behaves exactly as before; from cycle 1 onwards turret DPS tracks the wall / Zealot
-   *  scaling instead of exploding to Infinity (the old 20 * 1.35^count overflows to Infinity from
-   *  roughly count 2366 / rank S119, guaranteeing a one-tick death at S+/SS regardless of gear). */
+  /**
+   * Turret level is derived from the global upgrade counter (level = count + 1), with rare/clan modifiers.
+   * The per-level ramp (20 * 1.35^(level-1)) is kept, but the total is multiplied by the same
+   * WALL_FINAL_GROWTH_PER_CYCLE factor that walls and shop items use per completed wall cycle
+   * (as a Decimal, so turret DPS never overflows to Infinity even at XRFD). */
   function buildTurret(count: number, rareType: RareProbeType, isClanned: boolean, rankIndex = 0): TurretInfo {
     const isGold = rareType === 'goldBaser';
     const wallCycle = Math.floor(count / WALL_CYCLE_STEPS);
     const level = (count % WALL_CYCLE_STEPS) + 1;
-    const cycleMultiplier = Math.pow(WALL_FINAL_GROWTH_PER_CYCLE, wallCycle);
-    const turret = getTurretInfo(level, isGold);
-    turret.attackPower = Math.floor(turret.attackPower * cycleMultiplier);
+    const cycleMultiplier = Decimal.pow(WALL_FINAL_GROWTH_PER_CYCLE, wallCycle);
+    const base = getTurretInfo(level, isGold);
+    let attackPower: BigNum = big(base.attackPower).mul(cycleMultiplier);
     if (rareType === 'doubleBaser' || rareType === 'goldBaser') {
-      turret.attackPower = Math.floor(turret.attackPower * 1.5);
+      attackPower = attackPower.mul(1.5);
     } else if (rareType === 'tripleBaser') {
-      turret.attackPower = Math.floor(turret.attackPower * 2.0);
+      attackPower = attackPower.mul(2.0);
     }
     const ssBonus = isSsRank(rankIndex) ? ssLevel(rankIndex) : 0;
     if (ssBonus > 0) {
-      turret.count += SS_TURRET_COUNT_PER_LEVEL * ssBonus;
-      turret.attackPower = Math.floor(turret.attackPower * Math.pow(SS_TURRET_POWER_PER_LEVEL, ssBonus - 1));
+      attackPower = attackPower.mul(Decimal.pow(SS_TURRET_POWER_PER_LEVEL, ssBonus - 1));
+    }
+    let countTotal = base.count;
+    if (ssBonus > 0) {
+      countTotal += SS_TURRET_COUNT_PER_LEVEL * ssBonus;
     }
     if (isClanned) {
-      turret.count *= 3;
-      turret.attackPower *= 3;
+      countTotal *= 3;
+      attackPower = attackPower.mul(3);
     }
+    const turret: TurretInfo = { count: countTotal, level, attackPower: attackPower.floor() };
     return turret;
   }
 
@@ -197,11 +235,38 @@ export function useCombat() {
     return legacyCount;
   }
 
+  /** Deserialize a saved wall object (Decimal fields may be strings from JSON, numbers from legacy saves). */
+  function deserializeWall(saved: any): Wall {
+    const maxHp = desBig(saved?.maxHp, 0);
+    const currentHp = desBig(saved?.currentHp, maxHp);
+    return {
+      tier: saved?.tier || 'wall',
+      level: typeof saved?.level === 'number' ? saved.level : 1,
+      maxHp,
+      currentHp,
+      defense: desBig(saved?.defense, 0),
+    };
+  }
+
+  /** Initialize the SS-tier mechanic state for a probe (flat & serializable). */
+  function initSsMechanics(ssLv: number, saved?: Partial<ProbeBase>): Pick<ProbeBase, 'ssTier' | 'novaVolleyTimer' | 'overdriveLevel' | 'wallPhaseTimer' | 'wallPhaseInvuln' | 'realityDriftCharges'> {
+    const flags = ssLv > 0 ? getTierFlags(ssLv) : null;
+    return {
+      ssTier: ssLv > 0 ? getRankTier(ssLv) : undefined,
+      novaVolleyTimer: flags?.novaVolley ? (typeof saved?.novaVolleyTimer === 'number' ? saved.novaVolleyTimer : 0) : undefined,
+      overdriveLevel: flags?.overdrive ? (typeof saved?.overdriveLevel === 'number' ? saved.overdriveLevel : 0) : undefined,
+      wallPhaseTimer: flags?.phaseWalls ? (typeof saved?.wallPhaseTimer === 'number' ? saved.wallPhaseTimer : PHASE_WALL_INTERVAL) : undefined,
+      wallPhaseInvuln: flags?.phaseWalls ? (typeof saved?.wallPhaseInvuln === 'number' ? saved.wallPhaseInvuln : 0) : undefined,
+      realityDriftCharges: flags?.realityDrift ? (typeof saved?.realityDriftCharges === 'number' ? saved.realityDriftCharges : REALITY_DRIFT_MAX_CHARGES) : undefined,
+    };
+  }
+
   /** Create a new probe base with stats appropriate to its rank, rare type, and clan */
   function createProbeBase(rankIndex: number, forcedRareType?: RareProbeType, upgradeCount = 0, wallCycle = 0, shopCycle = 0): ProbeBase {
     const rankName = getRankName(rankIndex);
     const { isRare, rareType: initialRareType, isClanned, clanName } = generateRareProbe(rankIndex);
     const rareType = forcedRareType !== undefined ? forcedRareType : initialRareType;
+    const ssLv = isSsRank(rankIndex) ? ssLevel(rankIndex) : 0;
 
     // Wall & turret level come straight from the global upgrade counter.
     let wall = computeWallFromCount(upgradeCount, rareType, isClanned, rankIndex);
@@ -212,14 +277,15 @@ export function useCombat() {
     let trainingState: 'waiting15' | 'window2' | 'castingVoid' | 'normal' = 'normal';
     let trainingTimer = 0;
 
-    // SS-tier: freeze the ~45 minute journey time so every SS level takes exactly this long.
-    const ssJourneyTime = isSsRank(rankIndex) ? computeSsJourneyTime() : undefined;
+    // SS-tier: every SS level takes the frozen tier journey time (2640s for SS, escalating per tier).
+    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
+    const ssMechanics = initSsMechanics(ssLv);
 
     if (rareType === 'pather') {
       // Pathers ONLY have level 1 walls and NEVER any turrets.
       patherWallsRemaining = 50;
-      wall = { tier: 'wall', level: 1, maxHp: 200, currentHp: 200, defense: 2 };
-      turret = { count: 0, level: 1, attackPower: 0 };
+      wall = { tier: 'wall', level: 1, maxHp: big(200), currentHp: big(200), defense: big(2) };
+      turret = { count: 0, level: 1, attackPower: big(0) };
     } else if (rareType === 'trainingProbe') {
       ability = 'voidPrism';
       abilityCooldown = 0; // Available immediately
@@ -234,8 +300,8 @@ export function useCombat() {
       upgradeCount,
       wallCycle,
       shopCycle,
-      timeUntilUpgrade: isSsRank(rankIndex) && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
-      maxUpgradeTime: isSsRank(rankIndex) && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
+      timeUntilUpgrade: ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
+      maxUpgradeTime: ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
       ssJourneyTime,
       wall,
       turret,
@@ -253,6 +319,7 @@ export function useCombat() {
       patherLastSecond: Date.now(),
       trainingState,
       trainingTimer,
+      ...ssMechanics,
     };
   }
 
@@ -264,46 +331,7 @@ export function useCombat() {
         const parsed = JSON.parse(raw);
         const pb = parsed.probeBase || parsed;
         if (pb && typeof pb.rankIndex === 'number') {
-          const rIndex = pb.rankIndex;
-          const isSPlusOrHigher = rIndex >= 14;
-          const rareType: RareProbeType = isSPlusOrHigher ? (pb.rareType || null) : null;
-          const isPather = isSPlusOrHigher && pb.rareType === 'pather';
-          const isClanned = isSPlusOrHigher && !!pb.isClanned;
-          const legacyWallCycle = typeof pb.wallCycle === 'number' ? pb.wallCycle : 0;
-          const upgradeCount = loadUpgradeCount(pb, legacyWallCycle);
-          const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
-          const ssJourneyTime = isSsRank(rIndex) ? (typeof pb.ssJourneyTime === 'number' ? pb.ssJourneyTime : computeSsJourneyTime()) : undefined;
-          const maxUpgradeTime = isSsRank(rIndex) && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rIndex, wallCycle);
-          const tLevel = pb.turret && typeof pb.turret.level === 'number' ? pb.turret.level : 1;
-          const turret = isPather ? { count: 0, level: tLevel, attackPower: 0 } : buildTurret(upgradeCount, rareType, isClanned, rIndex);
-          const wall = pb.wall && typeof pb.wall.maxHp === 'number' ? (pb.wall as Wall) : computeWallFromCount(upgradeCount, rareType, isClanned, rIndex);
-          return {
-            rankIndex: rIndex,
-            rankName: pb.rankName || getRankName(rIndex),
-            probeKills: typeof pb.probeKills === 'number' ? pb.probeKills : 0,
-            upgradeCount,
-            wallCycle,
-            shopCycle: typeof pb.shopCycle === 'number' ? pb.shopCycle : 0,
-            timeUntilUpgrade: Math.max(1, Math.min(maxUpgradeTime, typeof pb.timeUntilUpgrade === 'number' ? pb.timeUntilUpgrade : maxUpgradeTime)),
-            maxUpgradeTime,
-            ssJourneyTime,
-            wall,
-            turret,
-            ability: pb.ability || getRandomAbility(rIndex),
-            abilityCooldown: typeof pb.abilityCooldown === 'number' ? pb.abilityCooldown : 40,
-            abilityActiveTimer: 0,
-            hasStartedCombat: typeof pb.hasStartedCombat === 'boolean' ? pb.hasStartedCombat : true,
-            isRare: isSPlusOrHigher && !!pb.isRare,
-            rareType: isSPlusOrHigher ? (pb.rareType || null) : null,
-            isClanned,
-            clanName: isClanned ? pb.clanName : undefined,
-            patherWallsRemaining: pb.patherWallsRemaining,
-            patherRebuildTimer: pb.patherRebuildTimer || 2,
-            patherWallsKilledThisSec: 0,
-            patherLastSecond: Date.now(),
-            trainingState: pb.trainingState || 'normal',
-            trainingTimer: pb.trainingTimer || 0,
-          };
+          return rebuildProbeFromSave(pb);
         }
       }
     } catch (e) {
@@ -312,67 +340,92 @@ export function useCombat() {
     return createProbeBase(0, null);
   }
 
+  /** Rebuild a full ProbeBase from (possibly legacy, possibly Decimal-string) save data. */
+  function rebuildProbeFromSave(pb: any): ProbeBase {
+    const rIndex = typeof pb.rankIndex === 'number' ? pb.rankIndex : 0;
+    const isSPlusOrHigher = rIndex >= 14;
+    const rareType: RareProbeType = isSPlusOrHigher ? (pb.rareType || null) : null;
+    const isPather = isSPlusOrHigher && pb.rareType === 'pather';
+    const isClanned = isSPlusOrHigher && !!pb.isClanned;
+    const legacyWallCycle = typeof pb.wallCycle === 'number' ? pb.wallCycle : 0;
+    const upgradeCount = loadUpgradeCount(pb, legacyWallCycle);
+    const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
+    const ssLv = isSsRank(rIndex) ? ssLevel(rIndex) : 0;
+    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
+    const maxUpgradeTime = ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rIndex, wallCycle);
+    const tLevel = pb.turret && typeof pb.turret.level === 'number' ? pb.turret.level : 1;
+    const turret = isPather ? { count: 0, level: tLevel, attackPower: big(0) } : buildTurret(upgradeCount, rareType, isClanned, rIndex);
+    const wall =
+      pb.wall && pb.wall.maxHp !== undefined && pb.wall.maxHp !== null
+        ? deserializeWall(pb.wall)
+        : computeWallFromCount(upgradeCount, rareType, isClanned, rIndex);
+    return {
+      rankIndex: rIndex,
+      rankName: pb.rankName || getRankName(rIndex),
+      probeKills: typeof pb.probeKills === 'number' ? pb.probeKills : 0,
+      upgradeCount,
+      wallCycle,
+      shopCycle: typeof pb.shopCycle === 'number' ? pb.shopCycle : 0,
+      timeUntilUpgrade: Math.max(1, Math.min(maxUpgradeTime, typeof pb.timeUntilUpgrade === 'number' ? pb.timeUntilUpgrade : maxUpgradeTime)),
+      maxUpgradeTime,
+      ssJourneyTime,
+      wall,
+      turret,
+      ability: pb.ability || getRandomAbility(rIndex),
+      abilityCooldown: typeof pb.abilityCooldown === 'number' ? pb.abilityCooldown : 40,
+      abilityActiveTimer: 0,
+      hasStartedCombat: typeof pb.hasStartedCombat === 'boolean' ? pb.hasStartedCombat : true,
+      isRare: isSPlusOrHigher && !!pb.isRare,
+      rareType: isSPlusOrHigher ? (pb.rareType || null) : null,
+      isClanned,
+      clanName: isClanned ? pb.clanName : undefined,
+      patherWallsRemaining: pb.patherWallsRemaining,
+      patherRebuildTimer: pb.patherRebuildTimer || 2,
+      patherWallsKilledThisSec: 0,
+      patherLastSecond: Date.now(),
+      trainingState: pb.trainingState || 'normal',
+      trainingTimer: pb.trainingTimer || 0,
+      ...initSsMechanics(ssLv, pb),
+    };
+  }
+
   // Reactive probe base state
   const probeBase = ref<ProbeBase>(loadInitialProbeBase());
 
-  // Wall tier progression order
-  const wallOrder: WallTier[] = ['wall', 'ultra', 'mega', 'power', 'final'];
-
-  /** Get maximum level for a given wall tier */
-  function getMaxLevelForTier(tier: WallTier): number {
-    switch (tier) {
-      case 'wall':
-      case 'ultra':
-      case 'mega':
-        return 5;
-      case 'power':
-        return 2;
-      case 'final':
-        return 1;
-    }
-  }
-
-  /** Get next wall tier and level in progression: Wall 1-5 -> Ultra 1-5 -> Mega 1-5 -> Power 1-2 -> Final */
-  function getNextWallTierAndLevel(tier: WallTier, level: number): { tier: WallTier; level: number } {
-    if (tier === 'wall') {
-      if (level < 5) return { tier: 'wall', level: level + 1 };
-      return { tier: 'ultra', level: 1 };
-    }
-    if (tier === 'ultra') {
-      if (level < 5) return { tier: 'ultra', level: level + 1 };
-      return { tier: 'mega', level: 1 };
-    }
-    if (tier === 'mega') {
-      if (level < 5) return { tier: 'mega', level: level + 1 };
-      return { tier: 'power', level: 1 };
-    }
-    if (tier === 'power') {
-      if (level < 2) return { tier: 'power', level: level + 1 };
-      return { tier: 'final', level: 1 };
-    }
-    if (tier === 'final') {
-      return { tier: 'final', level: 1 };
-    }
-    return { tier, level };
-  }
-
-  // Total turret DPS active against the zealot during combat
+  // Total turret DPS active against the zealot during combat (Decimal; includes tier mechanics)
   const totalTurretDps = computed(() => {
-    if (!isEngagedInCombat.value) return 0;
-    return probeBase.value.turret.attackPower;
+    if (!isEngagedInCombat.value) return big(0);
+    const base = probeBase.value;
+    let dps: BigNum = big(base.turret.attackPower);
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    if (ssLv > 0) {
+      const flags = getTierFlags(ssLv);
+      // SSS Nova Volley: while the probe's ability window is up, turret DPS surges
+      if (flags.novaVolley && (base.novaVolleyTimer ?? 0) > 0) {
+        dps = dps.mul(NOVA_VOLLEY_DPS_MULT);
+      }
+      // X Overdrive: DPS ramps the longer the zealot stays engaged
+      if (flags.overdrive && (base.overdriveLevel ?? 0) > 0) {
+        dps = dps.mul(1 + (base.overdriveLevel ?? 0) * OVERDRIVE_RAMP_PER_SEC);
+      }
+    }
+    return dps;
   });
 
   /** Automatically repair wall HP over time (supports 200ms fast ticks for double/triple basers) */
   function autoRepairWall(isFastTick = false) {
     const base = probeBase.value;
     const wall = { ...base.wall };
-    if (wall.currentHp > 0 && wall.currentHp < wall.maxHp) {
+    if (wall.currentHp.gt(0) && wall.currentHp.lt(wall.maxHp)) {
       let repairMultiplier = 0.25;
       let divisor = 1;
       let ssRegenPerSec = 0;
-      if (isSsRank(base.rankIndex)) {
-        // SS Golden Aura: extra wall regen on top of any rare/clan regen (scales a touch per SS level)
-        ssRegenPerSec = SS_REGEN_PER_SECOND * (1 + 0.25 * (ssLevel(base.rankIndex) - 1));
+      const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+      if (ssLv > 0) {
+        // SS Golden Aura: extra wall regen on top of any rare/clan regen (scales a touch per SS level;
+        // XRFD Final Apex doubles it)
+        const regen = SS_REGEN_PER_SECOND * (1 + 0.25 * (ssLv - 1));
+        ssRegenPerSec = getTierFlags(ssLv).finalApex ? regen * 2 : regen;
       }
       if (base.rareType === 'doubleBaser') {
         repairMultiplier = 0.25;
@@ -384,8 +437,8 @@ export function useCombat() {
         return; // Normal probes repair on 1s ticks
       }
 
-      const repairAmount = (wall.maxHp * repairMultiplier) / divisor + (wall.maxHp * ssRegenPerSec) / divisor;
-      wall.currentHp = Math.min(wall.maxHp, wall.currentHp + repairAmount);
+      const repairAmount = wall.maxHp.mul(repairMultiplier).div(divisor).add(wall.maxHp.mul(ssRegenPerSec).div(divisor));
+      wall.currentHp = Decimal.min(wall.maxHp, wall.currentHp.add(repairAmount));
       probeBase.value = {
         ...probeBase.value,
         wall,
@@ -393,7 +446,11 @@ export function useCombat() {
     }
   }
 
-  /** Tick upgrade countdown timer and probe abilities (Chrono / Void Prism / Training / Pather) */
+  /**
+   * Tick upgrade countdown timer, probe abilities (Chrono / Void Prism / Training / Pather), and the
+   * SS+ tier mechanic timers (Nova Volley window, Overdrive ramp, Phase Wall phase cadence).
+   * Returns true when a defense upgrade triggered.
+   */
   function tickProbeUpgrades(zealotState?: ZealotStats): boolean {
     const base = probeBase.value;
     if (!base.hasStartedCombat) {
@@ -446,6 +503,43 @@ export function useCombat() {
       }
     }
 
+    // --- SS+ tier mechanic timers ---
+    let novaVolleyTimer = base.novaVolleyTimer ?? 0;
+    let overdriveLevel = base.overdriveLevel ?? 0;
+    let wallPhaseInvuln = base.wallPhaseInvuln ?? 0;
+    let wallPhaseTimer = base.wallPhaseTimer ?? PHASE_WALL_INTERVAL;
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    if (ssLv > 0) {
+      const flags = getTierFlags(ssLv);
+      // SSS Nova Volley: count down the burst window
+      if (flags.novaVolley && novaVolleyTimer > 0) {
+        novaVolleyTimer = Math.max(0, novaVolleyTimer - 1);
+      }
+      // X Overdrive: ramp up while the zealot stays engaged (reset on stopCombat)
+      if (flags.overdrive) {
+        const cap = flags.finalApex ? OVERDRIVE_FINAL_CAP : OVERDRIVE_CAP;
+        if (isEngagedInCombat.value && overdriveLevel < cap) {
+          overdriveLevel += 1;
+        }
+      }
+      // XD Phase Walls: periodic invulnerability windows
+      if (flags.phaseWalls) {
+        const window = flags.finalApex ? PHASE_WALL_WINDOW + PHASE_WALL_FINAL_BONUS : PHASE_WALL_WINDOW;
+        if (wallPhaseInvuln > 0) {
+          wallPhaseInvuln = Math.max(0, wallPhaseInvuln - 1);
+          if (wallPhaseInvuln <= 0) {
+            wallPhaseTimer = PHASE_WALL_INTERVAL;
+          }
+        } else {
+          wallPhaseTimer = Math.max(0, wallPhaseTimer - 1);
+          if (wallPhaseTimer <= 0) {
+            wallPhaseInvuln = window;
+            wallPhaseTimer = PHASE_WALL_INTERVAL;
+          }
+        }
+      }
+    }
+
     let timeDecrement = 1;
     let abilityActiveTimer = base.abilityActiveTimer;
     let abilityCooldown = base.abilityCooldown;
@@ -470,10 +564,13 @@ export function useCombat() {
             abilityActiveTimer = base.rareType === 'doubleBaser' ? 8 : (base.rareType === 'tripleBaser' ? 12 : 4);
             abilityCooldown = 45;
           }
-          // SS Elite Probes: abilities fire ~2x more often and last longer
+          // SS Elite Probes: abilities fire ~2x more often and last longer; SSS+ bursts trigger Nova Volley
           if (isSsRank(base.rankIndex)) {
             abilityActiveTimer = Math.round(abilityActiveTimer * 1.5);
             abilityCooldown = Math.max(15, Math.floor(abilityCooldown / 2));
+            if (getTierFlags(ssLv).novaVolley) {
+              novaVolleyTimer = NOVA_VOLLEY_WINDOW;
+            }
           }
         }
       }
@@ -495,10 +592,22 @@ export function useCombat() {
         timeUntilUpgrade: nextTimeUntilUpgrade,
         abilityActiveTimer,
         abilityCooldown,
+        novaVolleyTimer,
+        overdriveLevel,
+        wallPhaseInvuln,
+        wallPhaseTimer,
       };
       return false;
     } else {
       if (zealotState && base.rareType !== 'trainingProbe') zealotState.isImmobilized = false;
+      // Carry the just-ticked mechanic timers into the level-up rebuild
+      probeBase.value = {
+        ...probeBase.value,
+        novaVolleyTimer,
+        overdriveLevel,
+        wallPhaseInvuln,
+        wallPhaseTimer,
+      };
       upgradeProbeDefenses();
       return true;
     }
@@ -507,11 +616,8 @@ export function useCombat() {
   /** Upgrade probe defense tier or level - driven purely by the global upgrade counter */
   function upgradeProbeDefenses() {
     const base = probeBase.value;
-
-    // SS probes spend exactly the frozen boss-timer on each level-up
-    const ssJourneyTime = isSsRank(base.rankIndex)
-      ? (base.ssJourneyTime || computeSsJourneyTime())
-      : undefined;
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
     const maxUpgradeTime = ssJourneyTime || calculateUpgradeTime(base.rankIndex, base.wallCycle);
 
     // Pathers only ever have level 1 walls and no turrets: the trigger just resets the timer and
@@ -540,6 +646,8 @@ export function useCombat() {
       ssJourneyTime,
       maxUpgradeTime,
       timeUntilUpgrade: maxUpgradeTime,
+      // XRD Reality Drift: fresh revive charges every level-up
+      realityDriftCharges: getTierFlags(ssLv).realityDrift ? REALITY_DRIFT_MAX_CHARGES : undefined,
     };
   }
 
@@ -585,13 +693,13 @@ export function useCombat() {
     newProbe.hasStartedCombat = true;
 
     // Global defense upgrade countdown continues across probe deaths so wall/turret
-    // upgrades fire regularly from early ranks onwards. SS probes freeze the ~45 min journey time
-    // so every SS level takes exactly as long as reaching SS1 did; that travel time carries over too.
+    // upgrades fire regularly from early ranks onwards. SS probes freeze the tier journey time
+    // so each SS level takes exactly as long as reaching that milestone did; it carries over too.
     newProbe.timeUntilUpgrade = isSsRank(nextRankIndex)
       ? (newProbe.maxUpgradeTime || base.timeUntilUpgrade)
       : Math.max(1, base.timeUntilUpgrade);
     newProbe.maxUpgradeTime = Math.max(1, isSsRank(nextRankIndex)
-      ? (newProbe.maxUpgradeTime || base.maxUpgradeTime || computeSsJourneyTime())
+      ? (newProbe.maxUpgradeTime || base.maxUpgradeTime || getSsJourneyTimeForLevel(ssLevel(nextRankIndex)))
       : (base.maxUpgradeTime || 45));
 
     probeBase.value = newProbe;
@@ -600,9 +708,9 @@ export function useCombat() {
   }
 
   /** Apply damage to probe wall from zealot attack */
-  function damageWall(amount: number, zealotState?: ZealotStats): { destroyed: boolean } {
+  function damageWall(amount: BigSource, zealotState?: ZealotStats): { destroyed: boolean } {
     if (zealotState && zealotState.isImmobilized) return { destroyed: false };
-    
+
     const base = probeBase.value;
 
     // Training Probe: 5% chance on first attack to insta-kill the PROBE (not the zealot!)
@@ -623,18 +731,42 @@ export function useCombat() {
       }
     }
 
+    // XD Phase Walls: while invulnerable the wall ignores all damage
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    if (ssLv > 0 && getTierFlags(ssLv).phaseWalls && (base.wallPhaseInvuln ?? 0) > 0) {
+      return { destroyed: false };
+    }
+
     isEngagedInCombat.value = true;
     const wall = { ...base.wall };
-    const effectiveDamage = Math.max(1, amount - wall.defense * 0.3);
-    wall.currentHp = Math.max(0, wall.currentHp - effectiveDamage);
+    const effectiveDamage = Decimal.max(big(1), big(amount).sub(wall.defense.mul(0.3)));
+    wall.currentHp = Decimal.max(big(0), wall.currentHp.sub(effectiveDamage));
 
-    probeBase.value = {
-      ...base,
-      wall,
-      hasStartedCombat: true,
-    };
+    if (wall.currentHp.lte(0)) {
+      // XRD Reality Drift: on the killing blow the wall may resurrect at partial HP instead of dying
+      if (ssLv > 0) {
+        const flags = getTierFlags(ssLv);
+        if (flags.realityDrift && (base.realityDriftCharges ?? 0) > 0) {
+          const chance = flags.finalApex ? REALITY_DRIFT_FINAL_CHANCE : REALITY_DRIFT_CHANCE;
+          if (Math.random() < chance) {
+            wall.currentHp = wall.maxHp.mul(REALITY_DRIFT_REVIVE_HP);
+            probeBase.value = {
+              ...base,
+              wall,
+              hasStartedCombat: true,
+              realityDriftCharges: (base.realityDriftCharges ?? 0) - 1,
+            };
+            return { destroyed: false };
+          }
+        }
+      }
 
-    if (wall.currentHp <= 0) {
+      probeBase.value = {
+        ...base,
+        wall,
+        hasStartedCombat: true,
+      };
+
       if (base.rareType === 'pather') {
         probeBase.value.patherWallsKilledThisSec = (base.patherWallsKilledThisSec || 0) + 1;
       }
@@ -642,13 +774,23 @@ export function useCombat() {
       return { destroyed };
     }
 
+    probeBase.value = {
+      ...base,
+      wall,
+      hasStartedCombat: true,
+    };
+
     return { destroyed: false };
   }
 
-  /** Stop active combat engagement */
+  /** Stop active combat engagement (also resets the X Overdrive ramp) */
   function stopCombat(zealotState?: ZealotStats) {
     if (zealotState) zealotState.isImmobilized = false;
     isEngagedInCombat.value = false;
+    // X Overdrive ramp resets whenever combat engagement resets
+    if (probeBase.value.overdriveLevel) {
+      probeBase.value.overdriveLevel = 0;
+    }
   }
 
   /** DEV TOOL: advance the global upgrade counter N full wall cycles (wall rank + shop scale) */
@@ -660,7 +802,8 @@ export function useCombat() {
     const isPather = base.rareType === 'pather';
     const wall = isPather ? base.wall : computeWallFromCount(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
     const turret = isPather ? base.turret : buildTurret(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
-    const ssJourneyTime = isSsRank(base.rankIndex) ? (base.ssJourneyTime || computeSsJourneyTime()) : undefined;
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
     const maxUpgradeTime = ssJourneyTime || calculateUpgradeTime(base.rankIndex, wallCycle);
     probeBase.value = {
       ...base,
@@ -687,46 +830,7 @@ export function useCombat() {
   /** Load saved combat state from storage */
   function loadCombatState(savedBase: any) {
     if (savedBase) {
-      const rIndex = typeof savedBase.rankIndex === 'number' ? savedBase.rankIndex : 0;
-      const isSPlusOrHigher = rIndex >= 14;
-      const rareType: RareProbeType = isSPlusOrHigher ? (savedBase.rareType || null) : null;
-      const isPather = isSPlusOrHigher && savedBase.rareType === 'pather';
-      const isClanned = isSPlusOrHigher && !!savedBase.isClanned;
-      const legacyWallCycle = typeof savedBase.wallCycle === 'number' ? savedBase.wallCycle : 0;
-      const upgradeCount = loadUpgradeCount(savedBase, legacyWallCycle);
-      const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
-      const ssJourneyTime = isSsRank(rIndex) ? (typeof savedBase.ssJourneyTime === 'number' ? savedBase.ssJourneyTime : computeSsJourneyTime()) : undefined;
-      const maxUpgradeTime = isSsRank(rIndex) && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rIndex, wallCycle);
-      const tLevel = savedBase.turret && typeof savedBase.turret.level === 'number' ? savedBase.turret.level : 1;
-      const turret = isPather ? { count: 0, level: tLevel, attackPower: 0 } : buildTurret(upgradeCount, rareType, isClanned, rIndex);
-      const wall = savedBase.wall && typeof savedBase.wall.maxHp === 'number' ? (savedBase.wall as Wall) : computeWallFromCount(upgradeCount, rareType, isClanned, rIndex);
-      probeBase.value = {
-        rankIndex: rIndex,
-        rankName: savedBase.rankName || getRankName(rIndex),
-        probeKills: typeof savedBase.probeKills === 'number' ? savedBase.probeKills : 0,
-        upgradeCount,
-        wallCycle,
-        shopCycle: typeof savedBase.shopCycle === 'number' ? savedBase.shopCycle : 0,
-        timeUntilUpgrade: Math.max(1, Math.min(maxUpgradeTime, typeof savedBase.timeUntilUpgrade === 'number' ? savedBase.timeUntilUpgrade : maxUpgradeTime)),
-        maxUpgradeTime,
-        ssJourneyTime,
-        wall,
-        turret,
-        ability: savedBase.ability || getRandomAbility(rIndex),
-        abilityCooldown: typeof savedBase.abilityCooldown === 'number' ? savedBase.abilityCooldown : 40,
-        abilityActiveTimer: 0,
-        hasStartedCombat: typeof savedBase.hasStartedCombat === 'boolean' ? savedBase.hasStartedCombat : true,
-        isRare: isSPlusOrHigher && !!savedBase.isRare,
-        rareType: isSPlusOrHigher ? (savedBase.rareType || null) : null,
-        isClanned,
-        clanName: isClanned ? savedBase.clanName : undefined,
-        patherWallsRemaining: savedBase.patherWallsRemaining,
-        patherRebuildTimer: savedBase.patherRebuildTimer || 2,
-        patherWallsKilledThisSec: 0,
-        patherLastSecond: Date.now(),
-        trainingState: savedBase.trainingState || 'normal',
-        trainingTimer: savedBase.trainingTimer || 0,
-      };
+      probeBase.value = rebuildProbeFromSave(savedBase);
     }
     isEngagedInCombat.value = false;
   }

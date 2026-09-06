@@ -1,17 +1,20 @@
+import { BigNum } from '../utils/bigNumber';
+import { TierId } from '../utils/ranks';
+
 export type WallTier = 'wall' | 'ultra' | 'mega' | 'power' | 'final';
 
 export interface Wall {
   tier: WallTier;
   level: number; // 1-5 for wall/ultra/mega, 1-2 for power, 1 for final
-  maxHp: number;
-  currentHp: number;
-  defense: number;
+  maxHp: BigNum;
+  currentHp: BigNum;
+  defense: BigNum;
 }
 
 export interface TurretInfo {
   count: number; // 8 normal, 16 for gold baser, scaled for clanned
   level: number; // 1 to 13+
-  attackPower: number; // total attack power
+  attackPower: BigNum; // total attack power (Decimal; unbounded across SS tiers)
 }
 
 export type RareProbeType = 'doubleBaser' | 'goldBaser' | 'pather' | 'tripleBaser' | 'trainingProbe' | null;
@@ -43,4 +46,18 @@ export interface ProbeBase {
   patherLastSecond?: number;
   trainingState?: 'waiting15' | 'window2' | 'castingVoid' | 'normal';
   trainingTimer?: number;
+
+  // --- SS+ milestone tiers (flat & serializable) ---
+  /** Current milestone tier of the probe ('SS' | 'SSS' | 'X' | 'XD' | 'XRD' | 'XRFD'). */
+  ssTier?: TierId;
+  /** SSS Nova Volley: seconds remaining while turret DPS is boosted. */
+  novaVolleyTimer?: number;
+  /** X Overdrive: turret DPS ramp-up level while the zealot stays engaged. */
+  overdriveLevel?: number;
+  /** XD Phase Walls: countdown until the wall phases out. */
+  wallPhaseTimer?: number;
+  /** XD Phase Walls: seconds of invulnerability remaining. */
+  wallPhaseInvuln?: number;
+  /** XRD Reality Drift: remaining wall-revive charges. */
+  realityDriftCharges?: number;
 }

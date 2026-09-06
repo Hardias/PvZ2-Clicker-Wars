@@ -1,9 +1,11 @@
 import { ref, computed, Ref } from 'vue';
+import Decimal from 'break_eternity.js';
 import { ZealotStats } from '../types/Zealot';
-import { ItemStats } from '../types/Item';
+import { BigSource, big, desBig, toNum } from '../utils/bigNumber';
 
 /**
  * Composable managing Zealot player stats, HP, attack power, dynamic click speed (CPS), currency, and persistence.
+ * All growing values are break_eternity Decimals so the game stays playable indefinitely.
  */
 export function useZealot(
   equipmentStats: ReturnType<typeof import('./useInventory').useInventory>['totalEquipmentStats'],
@@ -11,22 +13,43 @@ export function useZealot(
 ) {
   // Default base statistics for a new Zealot
   const defaultState: ZealotStats = {
-    hp: 100,
-    maxHp: 100,
-    baseAttack: 15,
+    hp: big(100),
+    maxHp: big(100),
+    baseAttack: big(15),
     baseAttackSpeed: 1.0, // 1 attack per second
     baseDefense: 5,
-    baseHpRegen: 1.0, // HP per second
-    minerals: 50,
-    vespeneGas: 0,
+    baseHpRegen: big(1.0), // HP per second
+    minerals: big(50),
+    vespeneGas: big(0),
     infiniteVespene: false,
     emergencyTeleports: 2,
     deaths: 0,
     isImmobilized: false,
     wallsKilled: 0,
-    damageDone: 0,
-    highestAverageDps: 0,
+    damageDone: big(0),
+    highestAverageDps: big(0),
   };
+
+  /** Coerce a saved (JSON string/number/Decimal) zealot object into a proper Decimal-backed state. */
+  function deserializeZealot(z: any, base: ZealotStats): ZealotStats {
+    return {
+      hp: desBig(z?.hp, base.hp),
+      maxHp: desBig(z?.maxHp, base.maxHp),
+      baseAttack: desBig(z?.baseAttack, base.baseAttack),
+      baseAttackSpeed: typeof z?.baseAttackSpeed === 'number' ? z.baseAttackSpeed : base.baseAttackSpeed,
+      baseDefense: typeof z?.baseDefense === 'number' ? z.baseDefense : base.baseDefense,
+      baseHpRegen: desBig(z?.baseHpRegen, base.baseHpRegen),
+      minerals: desBig(z?.minerals, base.minerals),
+      vespeneGas: desBig(z?.vespeneGas, base.vespeneGas),
+      infiniteVespene: z?.infiniteVespene === true,
+      emergencyTeleports: typeof z?.emergencyTeleports === 'number' ? z.emergencyTeleports : base.emergencyTeleports,
+      deaths: typeof z?.deaths === 'number' ? z.deaths : base.deaths,
+      isImmobilized: false,
+      wallsKilled: typeof z?.wallsKilled === 'number' ? z.wallsKilled : base.wallsKilled,
+      damageDone: desBig(z?.damageDone, base.damageDone),
+      highestAverageDps: desBig(z?.highestAverageDps, base.highestAverageDps),
+    };
+  }
 
   /** Load initial Zealot state from storage or fallback to defaults */
   function loadInitialState(): ZealotStats {
@@ -41,12 +64,9 @@ export function useZealot(
       if (raw) {
         const parsed = JSON.parse(raw);
         const zState = parsed.zealot || parsed;
-        return {
-          ...defaultState,
-          ...zState,
-          deaths: Math.max(savedDeaths, zState.deaths || 0),
-          isImmobilized: false,
-        };
+        const merged = deserializeZealot(zState, { ...defaultState, deaths: savedDeaths });
+        merged.deaths = Math.max(savedDeaths, zState.deaths || 0);
+        return merged;
       }
     } catch (e) {
       console.error('Failed to load zealot state from storage:', e);
@@ -61,10 +81,10 @@ export function useZealot(
   const state = ref<ZealotStats>(loadInitialState());
 
   // Total max HP including equipment bonuses
-  const maxHp = computed(() => state.value.maxHp + (equipmentStats.value.hp || 0));
+  const maxHp = computed(() => state.value.maxHp.add(equipmentStats.value.hp || 0));
   // Total attack power including equipment blade bonuses
-  const attackPower = computed(() => state.value.baseAttack + (equipmentStats.value.damage || 0));
-  
+  const attackPower = computed(() => state.value.baseAttack.add(equipmentStats.value.damage || 0));
+
   // Timestamps of manual clicks for dynamic attack speed calculation (CPS)
   const clickTimestamps = ref<number[]>([]);
 
@@ -94,48 +114,50 @@ export function useZealot(
   // Current damage per second: gloves use the auto-attack rate, otherwise manual clicks (CPS)
   const currentDps = computed(() => {
     const rate = equipmentStats.value.hasGloves ? attackSpeed.value : averageCps.value;
-    return rate * attackPower.value;
+    return attackPower.value.mul(rate);
   });
 
   // Effective defense including equipment armor
-  const defense = computed(() => state.value.baseDefense + (equipmentStats.value.defense || 0));
-  
+  const defense = computed(() => state.value.baseDefense + toNum(equipmentStats.value.defense || 0));
+
   // HP regeneration per second (+2,048,000 HP/s bonus when visiting the shop base)
   const hpRegen = computed(() => {
-    const base = state.value.baseHpRegen + (equipmentStats.value.hpRegen || 0);
+    const base = state.value.baseHpRegen.add(equipmentStats.value.hpRegen || 0);
     const shopRegenBonus = isAtShop && isAtShop.value ? 2048000 : 0;
-    return base + shopRegenBonus;
+    return base.add(shopRegenBonus);
   });
 
   /** Apply incoming damage with armor reduction */
-  function takeDamage(amount: number) {
-    const reduction = (equipmentStats.value as any).totalDefenseReduction || 0;
-    const reducedDamage = amount * (1 - reduction);
-    state.value.hp = Math.max(0, state.value.hp - Math.max(1, reducedDamage));
+  function takeDamage(amount: BigSource) {
+    const reduction = equipmentStats.value.totalDefenseReduction || 0;
+    const reducedDamage = big(amount).mul(1 - reduction);
+    state.value.hp = Decimal.max(big(0), state.value.hp.sub(Decimal.max(big(1), reducedDamage)));
   }
 
   /** Heal zealot HP up to max HP */
-  function heal(amount: number) {
-    state.value.hp = Math.min(maxHp.value, state.value.hp + amount);
+  function heal(amount: BigSource) {
+    state.value.hp = Decimal.min(maxHp.value, state.value.hp.add(big(amount)));
   }
 
   /** Gain mineral currency */
-  function gainMinerals(amount: number) {
-    state.value.minerals += amount;
+  function gainMinerals(amount: BigSource) {
+    state.value.minerals = state.value.minerals.add(big(amount));
   }
 
   /** Spend currency (minerals or vespene gas) if affordable */
-  function spendCurrency(cost: number, currency: 'minerals' | 'vespene'): boolean {
+  function spendCurrency(cost: BigSource, currency: 'minerals' | 'vespene'): boolean {
     if (currency === 'minerals') {
-      if (state.value.minerals >= cost) {
-        state.value.minerals -= cost;
+      const c = big(cost);
+      if (state.value.minerals.gte(c)) {
+        state.value.minerals = state.value.minerals.sub(c);
         return true;
       }
     } else if (currency === 'vespene') {
       // DEV: infinite Vespene Gas never depletes
       if (state.value.infiniteVespene) return true;
-      if (state.value.vespeneGas >= cost) {
-        state.value.vespeneGas -= cost;
+      const c = big(cost);
+      if (state.value.vespeneGas.gte(c)) {
+        state.value.vespeneGas = state.value.vespeneGas.sub(c);
         return true;
       }
     }
@@ -146,9 +168,9 @@ export function useZealot(
   function convertMineralsToVespene(vCount: number = 1): boolean {
     const costPerV = 64_000;
     const totalCost = costPerV * vCount;
-    if (state.value.minerals >= totalCost) {
-      state.value.minerals -= totalCost;
-      state.value.vespeneGas += vCount;
+    if (state.value.minerals.gte(totalCost)) {
+      state.value.minerals = state.value.minerals.sub(totalCost);
+      state.value.vespeneGas = state.value.vespeneGas.add(vCount);
       return true;
     }
     return false;
@@ -157,11 +179,11 @@ export function useZealot(
   /** Convert all possible minerals into vespene gas */
   function convertMaxMineralsToVespene(): boolean {
     const costPerV = 64_000;
-    const maxV = Math.floor(state.value.minerals / costPerV);
+    const maxV = state.value.minerals.div(costPerV).floor().toNumber();
     if (maxV > 0) {
       const totalCost = costPerV * maxV;
-      state.value.minerals -= totalCost;
-      state.value.vespeneGas += maxV;
+      state.value.minerals = state.value.minerals.sub(totalCost);
+      state.value.vespeneGas = state.value.vespeneGas.add(maxV);
       return true;
     }
     return false;
@@ -184,18 +206,12 @@ export function useZealot(
   }
 
   /** Load saved zealot state */
-  function loadState(savedState: ZealotStats) {
+  function loadState(savedState: any) {
     if (savedState) {
       const currentDeaths = state.value.deaths;
-      state.value = {
-        ...defaultState,
-        ...savedState,
-        deaths: Math.max(currentDeaths, savedState.deaths || 0),
-        isImmobilized: false,
-      };
-      if (typeof state.value.vespeneGas !== 'number') state.value.vespeneGas = 0;
-      if (typeof state.value.emergencyTeleports !== 'number') state.value.emergencyTeleports = 2;
-      if (typeof state.value.deaths !== 'number') state.value.deaths = savedState.deaths || currentDeaths;
+      const merged = deserializeZealot(savedState, { ...defaultState, deaths: currentDeaths });
+      merged.deaths = Math.max(currentDeaths, savedState?.deaths || 0);
+      state.value = merged;
     }
   }
 

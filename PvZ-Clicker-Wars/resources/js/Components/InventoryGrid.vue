@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { InventorySlot } from '../types/Item';
+import { formatNumber } from '../utils/format';
 
 interface Props {
   slots: InventorySlot[];
@@ -51,11 +52,11 @@ const emit = defineEmits<{
         <div v-if="slot.item" class="text-center mt-3 px-1.5">
           <div class="text-xs font-bold text-cyan-200 truncate max-w-[90px]">{{ slot.item.name }}</div>
           <div class="text-[10px] text-green-400 font-mono mt-1">
-            <span v-if="slot.item.stats.damage">+{{ slot.item.stats.damage }} DMG</span>
+            <span v-if="slot.item.stats.damage">+{{ formatNumber(slot.item.stats.damage) }} DMG</span>
             <span v-else-if="slot.item.stats.attackSpeed">+{{ slot.item.stats.attackSpeed }} SPD</span>
-            <span v-else-if="slot.item.stats.hp">+{{ slot.item.stats.hp }} HP</span>
-            <span v-else-if="slot.item.stats.defense">+{{ slot.item.stats.defense }} DEF</span>
-            <span v-else-if="slot.item.stats.hpRegen">+{{ slot.item.stats.hpRegen }} REG</span>
+            <span v-else-if="slot.item.stats.hp">+{{ formatNumber(slot.item.stats.hp) }} HP</span>
+            <span v-else-if="slot.item.stats.defense">+{{ formatNumber(slot.item.stats.defense) }} DEF</span>
+            <span v-else-if="slot.item.stats.hpRegen">+{{ formatNumber(slot.item.stats.hpRegen) }} REG</span>
           </div>
         </div>
       </div>

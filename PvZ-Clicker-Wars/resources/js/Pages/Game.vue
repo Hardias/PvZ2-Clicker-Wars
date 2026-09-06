@@ -7,6 +7,8 @@ import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
 import { useAudio } from '../composables/useAudio';
 import { Item } from '../types/Item';
 import { scaleShopItem, getShopMultiplier, getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
+import { formatNumber } from '../utils/format';
+import { big } from '../utils/bigNumber';
 
 import GameHeader from '../Components/GameHeader.vue';
 import AudioVisualizer from '../Components/AudioVisualizer.vue';
@@ -109,18 +111,23 @@ function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
 // Reset current session without deleting save slots, keeping death counter
 function handleReset() {
   const currentDeaths = zealotState.value.deaths;
+  const infiniteVespene = zealotState.value.infiniteVespene;
   zealotState.value = {
-    hp: 100,
-    maxHp: 100,
-    baseAttack: 15,
+    hp: big(100),
+    maxHp: big(100),
+    baseAttack: big(15),
     baseAttackSpeed: 1.0,
     baseDefense: 5,
-    baseHpRegen: 1.0,
-    minerals: 50,
-    vespeneGas: 0,
+    baseHpRegen: big(1.0),
+    minerals: big(50),
+    vespeneGas: big(0),
+    infiniteVespene,
     emergencyTeleports: 2,
     deaths: currentDeaths,
     isImmobilized: false,
+    wallsKilled: 0,
+    damageDone: big(0),
+    highestAverageDps: big(0),
   };
   slots.value = slots.value.map((_, idx) => ({
     slotIndex: idx,
@@ -137,7 +144,7 @@ function handleUnequip(slotIndex: number) {
   const item = unequipItem(slotIndex);
   if (item) {
     if (item.currency === 'vespene') {
-      zealotState.value.vespeneGas += item.cost;
+      zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(item.cost);
     } else {
       gainMinerals(item.cost);
     }
@@ -251,7 +258,7 @@ function handleShopUpgrade() {
 const devActions = {
   grantVespene() {
     zealotState.value.infiniteVespene = true;
-    zealotState.value.vespeneGas += 500_000_000;
+    zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(500_000_000);
     if (autosaveEnabled.value) autoSave();
     showSaveNotification('∞ Vespene gas granted (DEV)! Infinite!');
   },
@@ -259,12 +266,12 @@ const devActions = {
     const minerals = zealotState.value.minerals;
     const vespeneGas = zealotState.value.vespeneGas;
     zealotState.value = {
-      hp: 100,
-      maxHp: 100,
-      baseAttack: 15,
+      hp: big(100),
+      maxHp: big(100),
+      baseAttack: big(15),
       baseAttackSpeed: 1.0,
       baseDefense: 5,
-      baseHpRegen: 1.0,
+      baseHpRegen: big(1.0),
       minerals,
       vespeneGas,
       infiniteVespene: zealotState.value.infiniteVespene,
@@ -272,8 +279,8 @@ const devActions = {
       deaths: 0,
       isImmobilized: false,
       wallsKilled: 0,
-      damageDone: 0,
-      highestAverageDps: 0,
+      damageDone: big(0),
+      highestAverageDps: big(0),
     };
     probeBase.value = createProbeBase(0, null);
     stopCombat(zealotState.value);
@@ -292,8 +299,8 @@ const devActions = {
 function performAttack() {
   if (zealotState.value.isImmobilized) return;
   const dmg = attackPower.value;
-  zealotState.value.damageDone = (zealotState.value.damageDone || 0) + dmg;
-  gainMinerals(Math.floor(dmg));
+  zealotState.value.damageDone = zealotState.value.damageDone.add(dmg);
+  gainMinerals(dmg.floor());
   audio.playSfx('wallHit');
   const res = damageWall(dmg, zealotState.value);
   if (res.destroyed) {
@@ -317,7 +324,7 @@ function buyItem(item: Item, slotIndex: number) {
     const existing = unequipItem(slotIndex);
     if (existing) {
       if (existing.currency === 'vespene') {
-        zealotState.value.vespeneGas += existing.cost;
+        zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(existing.cost);
       } else {
         gainMinerals(existing.cost);
       }
@@ -361,13 +368,13 @@ function startGameLoops() {
   let wallRepairCounter = 0;
   fastTickInterval = window.setInterval(() => {
     // Track highest average DPS ever recorded
-    if (currentDps.value > Number(zealotState.value.highestAverageDps ?? 0)) {
+    if (currentDps.value.gt(zealotState.value.highestAverageDps)) {
       zealotState.value.highestAverageDps = currentDps.value;
     }
 
     // HP Regeneration (per 100ms)
-    if (hpRegen.value > 0 && zealotState.value.hp < maxHp.value) {
-      heal(hpRegen.value / 10);
+    if (hpRegen.value.gt(0) && zealotState.value.hp.lt(maxHp.value)) {
+      heal(hpRegen.value.div(10));
     }
 
     // 200ms wall repair check for double/triple basers (every 2nd 100ms tick = 200ms)
@@ -382,13 +389,13 @@ function startGameLoops() {
     // Turret Damage if engaged in combat (per 100ms) - PAUSED during Training Probe waiting15 or castingVoid states so zealot never dies helplessly!
     if (isEngagedInCombat.value && currentView.value === 'battle') {
       const isTrainingBlocked = probeBase.value.rareType === 'trainingProbe' && (probeBase.value.trainingState === 'waiting15' || probeBase.value.trainingState === 'castingVoid');
-      if (totalTurretDps.value > 0 && !isTrainingBlocked) {
-        const damageThisTick = totalTurretDps.value / 10;
+      if (totalTurretDps.value.gt(0) && !isTrainingBlocked) {
+        const damageThisTick = totalTurretDps.value.div(10);
         takeDamage(damageThisTick);
-        if (Math.floor(damageThisTick) > 0) {
+        if (damageThisTick.gte(1)) {
           audio.playSfx('turretHit');
         }
-        if (zealotState.value.hp <= 0) {
+        if (zealotState.value.hp.lte(0)) {
           const teleported = useEmergencyTeleport();
           if (teleported) {
             audio.playSfx('teleport');

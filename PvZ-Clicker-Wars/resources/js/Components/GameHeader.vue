@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { formatNumber } from '../utils/format';
+import { BigNum } from '../utils/bigNumber';
 
 interface Props {
-  minerals: number;
-  vespeneGas: number;
+  minerals: BigNum;
+  vespeneGas: BigNum;
   infiniteVespene?: boolean;
   autosaveEnabled: boolean;
   musicVolume: number;
@@ -34,7 +35,12 @@ const menuOpen = ref(false);
 
 function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
   menuOpen.value = false;
-  emit(action);
+  switch (action) {
+    case 'save': emit('save'); break;
+    case 'load': emit('load'); break;
+    case 'reset': emit('reset'); break;
+    case 'tutorial': emit('openTutorial'); break;
+  }
 }
 </script>
 
