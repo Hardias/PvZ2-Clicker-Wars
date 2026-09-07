@@ -1,5 +1,8 @@
 import type { TrackDrums, TrackBass, TrackNeuro, TrackStab, TrackChug, TrackTom, TrackCrash } from './types';
 
+// White-noise generator: fills an AudioBuffer with random samples. Used by every
+// noise-based drum voice and the SFX bus; the music voices share ONE buffer via
+// getNoiseBuffer() so this only runs on (re)allocation.
 export function createNoiseBuffer(audio: AudioContext, duration: number): AudioBuffer {
   const sampleRate = audio.sampleRate;
   const length = sampleRate * duration;
@@ -11,8 +14,40 @@ export function createNoiseBuffer(audio: AudioContext, duration: number): AudioB
   return buffer;
 }
 
+// Per-hit buffer allocation is the heaviest cost of the drum voices on mobile.
+// All noise drums share ONE 1s white-noise buffer (rebuilt only when the
+// sample rate changes); BufferSource.stop() just trims the played slice.
+const noiseCache: { buffer: AudioBuffer | null; sampleRate: number } = { buffer: null, sampleRate: 0 };
+
+// Returns the shared 1s noise buffer, creating it (or rebuilding it if the
+// sample rate changed) on first use.
+function getNoiseBuffer(audio: AudioContext): AudioBuffer {
+  if (!noiseCache.buffer || noiseCache.sampleRate !== audio.sampleRate) {
+    noiseCache.sampleRate = audio.sampleRate;
+    noiseCache.buffer = createNoiseBuffer(audio, 1.0);
+  }
+  return noiseCache.buffer;
+}
+
+// The waveshaper curves only depend on their shaping constant, so build each
+// once at module load instead of on every single note hit.
+function makeWaveshapeCurve(beta: number): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const x = (i / 128) - 1;
+    curve[i] = (Math.PI + beta) * x / (Math.PI + beta * Math.abs(x));
+  }
+  return curve;
+}
+
+const BASS_CURVE = makeWaveshapeCurve(3);
+const NEURO_CURVE = makeWaveshapeCurve(5);
+const STAB_CURVE = makeWaveshapeCurve(4);
+const CHUG_CURVE = makeWaveshapeCurve(4);
+
+// "Kick" voice — sub-sine body with a pitch drop plus a square "beater click"
+// transient for the attack POW.
 export function playKick(audio: AudioContext, dest: GainNode, time: number, k: TrackDrums['kick']) {
-  // Sub body
   const osc = audio.createOscillator();
   osc.type = k.type;
   osc.frequency.setValueAtTime(k.start, time);
@@ -41,8 +76,9 @@ export function playKick(audio: AudioContext, dest: GainNode, time: number, k: T
   click.stop(time + 0.045);
 }
 
+// "Snare" voice — highpassed noise crack + triangle body thump on the backbeat.
 export function playSnare(audio: AudioContext, dest: GainNode, time: number, s: TrackDrums['snare']) {
-  const buf = createNoiseBuffer(audio, 0.15);
+  const buf = getNoiseBuffer(audio);
   const noise = audio.createBufferSource();
   noise.buffer = buf;
   const filter = audio.createBiquadFilter();
@@ -70,8 +106,9 @@ export function playSnare(audio: AudioContext, dest: GainNode, time: number, s: 
   body.stop(time + 0.1);
 }
 
+// "Hi-hat" voice — highpassed noise in short (closed) or longer (open) bursts.
 export function playHiHat(audio: AudioContext, dest: GainNode, time: number, open: boolean, h: TrackDrums['hh']) {
-  const buf = createNoiseBuffer(audio, open ? 0.1 : 0.04);
+  const buf = getNoiseBuffer(audio);
   const noise = audio.createBufferSource();
   noise.buffer = buf;
   const filter = audio.createBiquadFilter();
@@ -92,7 +129,7 @@ export function playHiHat(audio: AudioContext, dest: GainNode, time: number, ope
 // "Rattle" — mechanical war-ratchet tick: the infamous Hell March industrial chatter
 // that grinds under the whole mix like a spinning chainsaw gear.
 export function playRattle(audio: AudioContext, dest: GainNode, time: number, r: TrackDrums['rattle']) {
-  const buf = createNoiseBuffer(audio, 0.045);
+  const buf = getNoiseBuffer(audio);
   const noise = audio.createBufferSource();
   noise.buffer = buf;
   const filter = audio.createBiquadFilter();
@@ -112,18 +149,14 @@ export function playRattle(audio: AudioContext, dest: GainNode, time: number, r:
   noise.stop(time + 0.045);
 }
 
+// "Bass" voice — driven sawtooth through a lowpass sweeping fStart → fEnd.
 export function playBass(audio: AudioContext, dest: GainNode, time: number, freq: number, dur: number, b: TrackBass) {
   const osc = audio.createOscillator();
   osc.type = 'sawtooth';
   osc.frequency.value = freq;
   const dist = audio.createWaveShaper();
-  const curve = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    const x = (i / 128) - 1;
-    curve[i] = (Math.PI + 3) * x / (Math.PI + 3 * Math.abs(x));
-  }
-  dist.curve = curve;
-  dist.oversample = '2x';
+  dist.curve = BASS_CURVE;
+  dist.oversample = 'none';
   osc.connect(dist);
   const filter = audio.createBiquadFilter();
   filter.type = 'lowpass';
@@ -148,13 +181,8 @@ export function playNeuroBass(audio: AudioContext, dest: GainNode, time: number,
   const sawCount = 3;
   const saws: OscillatorNode[] = [];
   const dist = audio.createWaveShaper();
-  const curve = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    const x = (i / 128) - 1;
-    curve[i] = (Math.PI + 5) * x / (Math.PI + 5 * Math.abs(x));
-  }
-  dist.curve = curve;
-  dist.oversample = '2x';
+  dist.curve = NEURO_CURVE;
+  dist.oversample = 'none';
 
   const mix = audio.createGain();
   mix.gain.value = 1 / sawCount;
@@ -217,12 +245,7 @@ export function playStab(audio: AudioContext, dest: GainNode, time: number, freq
   lfo.connect(lfoGain);
   lfoGain.connect(osc.frequency);
   const dist = audio.createWaveShaper();
-  const curve = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    const x = (i / 128) - 1;
-    curve[i] = (Math.PI + 4) * x / (Math.PI + 4 * Math.abs(x));
-  }
-  dist.curve = curve;
+  dist.curve = STAB_CURVE;
   dist.oversample = '2x';
   const filter = audio.createBiquadFilter();
   filter.type = s.filter ?? 'bandpass';
@@ -252,13 +275,8 @@ export function playChug(audio: AudioContext, dest: GainNode, time: number, freq
   osc.type = c.type;
   osc.frequency.value = freq;
   const dist = audio.createWaveShaper();
-  const curve = new Float32Array(256);
-  for (let i = 0; i < 256; i++) {
-    const x = (i / 128) - 1;
-    curve[i] = (Math.PI + 4) * x / (Math.PI + 4 * Math.abs(x));
-  }
-  dist.curve = curve;
-  dist.oversample = '2x';
+  dist.curve = CHUG_CURVE;
+  dist.oversample = 'none';
   osc.connect(dist);
   const filter = audio.createBiquadFilter();
   filter.type = 'lowpass';
@@ -299,7 +317,7 @@ export function playTom(audio: AudioContext, dest: GainNode, time: number, freq:
 
 // "Crash" voice — big noise cymbal hit for section impact
 export function playCrash(audio: AudioContext, dest: GainNode, time: number, c: TrackCrash) {
-  const buf = createNoiseBuffer(audio, 0.9);
+  const buf = getNoiseBuffer(audio);
   const noise = audio.createBufferSource();
   noise.buffer = buf;
   const filter = audio.createBiquadFilter();

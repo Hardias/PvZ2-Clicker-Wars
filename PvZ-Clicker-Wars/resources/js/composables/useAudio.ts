@@ -4,6 +4,7 @@ import { BIG_PICKLE_TRACKS, GEMINI_TRACKS, snarePattern, hhPattern } from '../au
 import { playKick, playSnare, playHiHat, playRattle, playBass, playNeuroBass, playStab, playChug, playTom, playCrash } from '../audio/synths';
 import { playSfxSound } from '../audio/sfx';
 
+// Loads a 0..1 volume value from localStorage with a sensible fallback.
 function loadNumber(key: string, fallback: number): number {
   const raw = localStorage.getItem(key);
   if (raw !== null) {
@@ -13,6 +14,7 @@ function loadNumber(key: string, fallback: number): number {
   return fallback;
 }
 
+// Loads a boolean pref from localStorage with a sensible fallback.
 function loadBool(key: string, fallback: boolean): boolean {
   const raw = localStorage.getItem(key);
   if (raw === 'true') return true;
@@ -35,6 +37,8 @@ export function useAudio() {
   let musicInterval: number | null = null;
   let initialized = false;
 
+  // Lazily creates (and resumes) the shared AudioContext — it must be unlocked
+  // by a user gesture before any sound can play.
   function ensureContext(): AudioContext {
     if (!ctx || ctx.state === 'closed') {
       ctx = new AudioContext();
@@ -45,6 +49,8 @@ export function useAudio() {
     return ctx;
   }
 
+  // Builds the master audio graph once: music/sfx buses, glue compressor and the
+  // analyser that feeds the visualizer.
   function ensureNodes(): AudioNodes {
     const audio = ensureContext();
     if (!nodes) {
@@ -94,6 +100,7 @@ export function useAudio() {
   let songDest: GainNode | null = null;
   let timelinePos = 0;
 
+  // Restores the saved track index, clamped to the current catalog size.
   function loadTrackIndex(): number {
     const raw = localStorage.getItem('pvz2_music_track');
     if (raw !== null) {
@@ -103,6 +110,7 @@ export function useAudio() {
     return 0;
   }
 
+  // Restores the saved track pack ('big_pickle' | 'gemini').
   function loadTrackPack(): 'big_pickle' | 'gemini' {
     const raw = localStorage.getItem('pvz2_track_pack');
     if (raw === 'gemini' || raw === 'big_pickle') return raw;
@@ -119,6 +127,7 @@ export function useAudio() {
   const currentTrackName = computed<string>(() => TRACKS.value[trackIndex.value]?.name ?? TRACKS.value[0].name);
   const currentTrackEmoji = computed<string>(() => TRACKS.value[trackIndex.value]?.emoji ?? TRACKS.value[0].emoji);
 
+  // Switches packs mid-session, stopping and restarting music if it was playing.
   function setTrackPack(pack: 'big_pickle' | 'gemini') {
     const wasPlaying = isPlaying.value && !musicMuted.value;
     if (wasPlaying) stopMusic();
@@ -132,6 +141,8 @@ export function useAudio() {
   }
 
   // ── Track-aware scheduler state machine ───────────────────────────
+  // Enters a section: sets the loop budget to mainLoops (for the main section)
+  // or a randomized alt-loop count.
   function enterSection(idx: number) {
     const track = TRACKS.value[trackIndex.value];
     currentSectionIdx = idx;
@@ -140,6 +151,9 @@ export function useAudio() {
       : track.altLoops.min + Math.floor(Math.random() * (track.altLoops.max - track.altLoops.min + 1));
   }
 
+  // One 8th-note tick: plays the drums, rattle, stab, chug, tom, crash and bass
+  // (or neuro bass) pattern of the current step, then advances and rolls over
+  // to the next section/timeline entry.
   function schedulerTick() {
     if (!songCtx || !songDest || musicMuted.value) return;
 
@@ -223,6 +237,7 @@ export function useAudio() {
     }
   }
 
+  // Boots the step sequencer and starts the interval timer for the current track.
   function startMusic() {
     if (isPlaying.value) return;
     const audio = ensureContext();
@@ -246,6 +261,7 @@ export function useAudio() {
     isPlaying.value = true;
   }
 
+  // Halts the scheduler and silences any hanging oscillator/noise voices.
   function stopMusic() {
     if (beatTimer) {
       clearInterval(beatTimer);
@@ -271,6 +287,7 @@ export function useAudio() {
     isPlaying.value = false;
   }
 
+  // Advances to the next catalog track (wrapping around) and persists the index.
   function nextTrack() {
     const wasPlaying = isPlaying.value && !musicMuted.value;
     if (wasPlaying) stopMusic();
@@ -281,6 +298,7 @@ export function useAudio() {
 
   // ─── Sound Effects ────────────────────────────────────────────────
 
+  // Fires a one-shot sound effect through the SFX bus.
   function playSfx(name: SfxName) {
     if (sfxMuted.value) return;
     const audio = ensureContext();
@@ -290,6 +308,7 @@ export function useAudio() {
 
   // ─── Volume / Mute Controls ──────────────────────────────────────
 
+  // Sets + persists the music bus volume, applied live when unmuted.
   function setMusicVolume(v: number) {
     musicVolume.value = Math.max(0, Math.min(1, v));
     localStorage.setItem('pvz2_music_volume', String(musicVolume.value));
@@ -298,6 +317,7 @@ export function useAudio() {
     }
   }
 
+  // Sets + persists the SFX bus volume, applied live when unmuted.
   function setSfxVolume(v: number) {
     sfxVolume.value = Math.max(0, Math.min(1, v));
     localStorage.setItem('pvz2_sfx_volume', String(sfxVolume.value));
@@ -306,6 +326,8 @@ export function useAudio() {
     }
   }
 
+  // Mutes/unmutes music; unmuting (re)starts the sequencer since autoplay
+  // requires a user gesture.
   function toggleMusicMute() {
     musicMuted.value = !musicMuted.value;
     localStorage.setItem('pvz2_music_muted', String(musicMuted.value));
@@ -323,6 +345,7 @@ export function useAudio() {
     }
   }
 
+  // Mutes/unmutes the SFX bus.
   function toggleSfxMute() {
     sfxMuted.value = !sfxMuted.value;
     localStorage.setItem('pvz2_sfx_muted', String(sfxMuted.value));
@@ -334,6 +357,7 @@ export function useAudio() {
     }
   }
 
+  // First user-gesture hook: unlocks the audio graph and starts music if enabled.
   function initOnInteraction() {
     if (initialized) return;
     initialized = true;
@@ -351,17 +375,20 @@ export function useAudio() {
     }
   });
 
+  // Live FFT snapshot for the visualizer (null when disabled/muted).
   function getFrequencyData(): Uint8Array | null {
     if (!nodes || musicMuted.value || !visualizerEnabled.value) return null;
     nodes.analyser.getByteFrequencyData(nodes.freqData);
     return nodes.freqData;
   }
 
+  // Toggles visualizer rendering and persists the pref.
   function toggleVisualizer() {
     visualizerEnabled.value = !visualizerEnabled.value;
     localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));
   }
 
+  // Sets visualizer rendering state and persists the pref.
   function setVisualizer(enabled: boolean) {
     visualizerEnabled.value = enabled;
     localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));

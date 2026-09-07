@@ -1,6 +1,8 @@
 import type { SfxName } from './types';
 import { createNoiseBuffer } from './synths';
 
+// SFX dispatcher: fully procedural one-shots on the SFX bus. Event-driven
+// (click/combat feedback), not a hot path, so per-shot noise buffers are fine.
 export function playSfxSound(name: SfxName, audio: AudioContext, sfxGain: GainNode): void {
   const now = audio.currentTime;
     switch (name) {
