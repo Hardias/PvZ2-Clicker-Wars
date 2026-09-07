@@ -603,10 +603,8 @@ onUnmounted(() => {
     <!-- Audio Equalizer Visualizer (above background, below content) -->
     <AudioVisualizer
       :active="!audio.musicMuted.value && audio.isPlaying.value && audio.visualizerEnabled.value"
-      :get-section-frames="audio.getSectionFrames"
-      :section="audio.visualSection.value"
-      :step="audio.visualStep.value"
-      :tick="audio.visualTick.value"
+      :get-frequency-data="audio.getFrequencyData"
+      :quality-mode="devScreenType"
     />
 
     <!-- Content layer -->
@@ -671,6 +669,8 @@ onUnmounted(() => {
           <BattleArea 
             :probeBase="probeBase"
             :attackPower="attackPower"
+            :zealot-hp="zealotState.hp"
+            :zealot-max-hp="maxHp"
             :isImmobilized="zealotState.isImmobilized"
             :combo-count="combo.comboCount.value"
             :combo-max="combo.comboMax.value"
@@ -813,18 +813,18 @@ onUnmounted(() => {
       @close="showDevTerminal = false"
     />
 
-    <!-- Notification Toast -->
+    <!-- In-Game Notification Popup (non-blocking, stays inside the game layout so it never breaks mobile) -->
     <Transition
       enter-active-class="transition ease-out duration-300"
-      enter-from-class="opacity-0 translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
+      enter-from-class="opacity-0 scale-95 translate-y-1"
+      enter-to-class="opacity-100 scale-100 translate-y-0"
       leave-active-class="transition ease-in duration-200"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-100 translate-y-0"
+      leave-from-class="opacity-100 scale-100 translate-y-0"
+      leave-to-class="opacity-0 scale-95 translate-y-1"
     >
-      <div v-if="autoSaveNotification" class="fixed bottom-[calc(env(safe-area-inset-bottom)+4rem)] right-3 sm:right-4 left-3 sm:left-auto bg-cyan-900/90 border border-cyan-400 text-cyan-200 px-4 py-2.5 rounded-lg shadow-2xl text-xs font-bold z-50 flex items-center justify-center sm:justify-start space-x-2 backdrop-blur-sm">
-        <span class="text-sm">💾</span>
-        <span><span>{{ saveNotificationText }}</span></span>
+      <div v-if="autoSaveNotification" class="fixed top-[calc(env(safe-area-inset-top)+8rem)] left-1/2 -translate-x-1/2 z-40 pointer-events-none w-auto max-w-[min(92vw,30rem)] bg-gray-950/90 backdrop-blur-md border border-cyan-400/60 px-4 py-2.5 rounded-xl shadow-2xl shadow-cyan-900/40 ring-1 ring-cyan-400/30 flex items-center gap-2.5">
+        <span class="text-sm text-cyan-300 shrink-0">💾</span>
+        <span class="text-cyan-100 font-bold text-xs sm:text-sm leading-snug text-center">{{ saveNotificationText }}</span>
       </div>
     </Transition>
   </div>

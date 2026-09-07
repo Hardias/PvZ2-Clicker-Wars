@@ -10,6 +10,8 @@ import AbilityImmunityIndicator from './AbilityImmunityIndicator.vue';
 interface Props {
   probeBase: ProbeBase;
   attackPower: BigNum;
+  zealotHp: BigNum;
+  zealotMaxHp: BigNum;
   isImmobilized?: boolean;
   comboCount?: number;
   comboMax?: number;
@@ -106,6 +108,14 @@ const wallHpPercentage = computed(() => {
   return Math.min(100, Math.max(0, Number(pct.toNumber())));
 });
 
+// Zealot HP percentage (live bar visible above the wall while attacking, vital on mobile)
+const zealotHpPercentage = computed(() => {
+  const max = props.zealotMaxHp;
+  if (!max || max.lte(0)) return 0;
+  const pct = props.zealotHp.div(max).mul(100);
+  return Math.min(100, Math.max(0, pct.toNumber()));
+});
+
 const upgradeProgressPercentage = computed(() => {
   const base = props.probeBase;
   if (!base.maxUpgradeTime || base.maxUpgradeTime <= 0) return 0;
@@ -199,8 +209,8 @@ function formatTimer(value: number): string {
         
         <!-- Probe Icon & Status -->
         <div class="flex items-center space-x-3 mb-3">
-          <div class="w-12 h-12 rounded-full bg-cyan-900/60 border border-cyan-400 flex items-center justify-center text-2xl animate-pulse">
-            🤖
+          <div class="w-12 h-12 rounded-full bg-cyan-900/60 border border-cyan-400 overflow-hidden flex items-center justify-center">
+            <img src="/Probe_SC2_Head1.webp" alt="Probe" class="w-full h-full object-cover" />
           </div>
           <div>
             <div class="text-sm font-bold text-cyan-300">Probe Command (Rank <span :class="isSs ? 'text-amber-300' : ''">{{ probeBase.rankName }}</span>)</div>
@@ -247,6 +257,17 @@ function formatTimer(value: number): string {
           >
             ⚡ {{ isSs ? tierMechanic.toUpperCase() : 'PROBES AUTO-REPAIR' }} ({{ isSs ? '25% + 2%' : (probeBase.rareType === 'doubleBaser' ? '2x' : (probeBase.rareType === 'tripleBaser' ? '3x' : '25%')) }} HP/s) ⚡
           </span>
+        </div>
+
+        <!-- Zealot HP Bar (live HP above the wall — essential while attacking on mobile) -->
+        <div class="w-full bg-gray-900/80 px-4 py-2.5 rounded-lg border border-green-700/40 mb-3">
+          <div class="flex justify-between items-center text-xs font-bold mb-1">
+            <span class="text-green-400">⚔️ ZEALOT HP</span>
+            <span class="font-mono whitespace-nowrap">{{ formatNumber(zealotHp) }} / {{ formatNumber(zealotMaxHp) }}</span>
+          </div>
+          <div class="w-full bg-gray-800 h-2.5 rounded-full overflow-hidden border border-green-700/50">
+            <div class="bg-gradient-to-r from-green-700 to-green-400 h-full transition-all duration-150" :style="{ width: `${zealotHpPercentage}%` }"></div>
+          </div>
         </div>
 
         <!-- Wall Defense Bar -->
