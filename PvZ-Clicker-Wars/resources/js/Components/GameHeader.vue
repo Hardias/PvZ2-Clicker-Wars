@@ -14,6 +14,7 @@ interface Props {
   sfxMuted: boolean;
   currentTrackName: string;
   currentTrackEmoji: string;
+  trackPack: 'big_pickle' | 'gemini';
 }
 
 defineProps<Props>();
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   (e: 'setMusicVolume', value: number): void;
   (e: 'setSfxVolume', value: number): void;
   (e: 'nextTrack'): void;
+  (e: 'setTrackPack', pack: 'big_pickle' | 'gemini'): void;
   (e: 'openTutorial'): void;
 }>();
 
@@ -74,13 +76,14 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
         @click="menuOpen = true"
         class="lg:hidden bg-gray-800 hover:bg-gray-700 px-2.5 py-1.5 rounded text-xs font-bold border border-cyan-700/60 text-cyan-200 flex items-center space-x-1 transition-all shrink-0"
         title="Menu"
+        data-dev="header-hamburger"
       >
         <span class="text-sm leading-none">☰</span>
         <span>MENU</span>
       </button>
 
       <!-- Desktop: audio + actions -->
-      <div class="hidden lg:flex items-center space-x-4">
+      <div class="hidden lg:flex items-center space-x-4" data-dev="header-desktop-actions">
         <!-- Audio Controls -->
         <div class="relative">
           <button
@@ -107,6 +110,21 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
               v-if="showAudioPanel"
               class="absolute right-0 top-full mt-2 bg-gray-900 border border-purple-500/40 rounded-lg p-4 shadow-2xl shadow-purple-900/50 z-50 w-64"
             >
+              <!-- Music Pack Selector -->
+              <div class="mb-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Music Pack</span>
+                </div>
+                <select
+                  :value="trackPack"
+                  @change="emit('setTrackPack', ($event.target as HTMLSelectElement).value as 'big_pickle' | 'gemini')"
+                  class="w-full bg-gray-950 text-purple-200 px-2 py-1.5 rounded text-xs font-bold border border-purple-500/50 focus:outline-none focus:border-purple-400 cursor-pointer"
+                >
+                  <option value="big_pickle">Big Pickle</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
+
               <!-- Music Track Selector -->
               <div class="mb-3">
                 <div class="flex items-center justify-between mb-1">

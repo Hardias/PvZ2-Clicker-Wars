@@ -4,6 +4,7 @@ import { Item, ItemCategory, InventorySlot } from '../types/Item';
 import { formatNumber } from '../utils/format';
 import { getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
 import { BigNum, big } from '../utils/bigNumber';
+import { VESPENE_CONVERSION_RATE } from '../utils/constants';
 
 interface Props {
   minerals: BigNum;
@@ -25,7 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = ref<ItemCategory>('blades');
-const maxPossibleV = computed(() => big(props.minerals).div(64000).floor().toNumber());
+const maxPossibleV = computed(() => big(props.minerals).div(VESPENE_CONVERSION_RATE).floor().toNumber());
 
 const shopRankName = computed(() => getShopRankName(props.shopCycle));
 const shopMultiplierLabel = computed(() => getShopMultiplierLabel(props.shopCycle));
@@ -200,13 +201,13 @@ function handleBuy(item: Item) {
         <div class="bg-gray-950 border border-green-900/60 rounded-lg p-3 mb-4 flex flex-col sm:flex-row gap-3 justify-between sm:items-center">
           <div>
             <div class="text-xs font-bold text-green-400">Max Vespene Gas Exchange</div>
-            <div class="text-[10px] text-gray-400">Cost: 64,000 Minerals (64,000M) = 1V (Vespene Gas)</div>
+            <div class="text-[10px] text-gray-400">Cost: {{ VESPENE_CONVERSION_RATE.toLocaleString() }} Minerals ({{ VESPENE_CONVERSION_RATE.toLocaleString() }}M) = 1V (Vespene Gas)</div>
           </div>
           <button 
             @click="emit('convertMaxVespene')"
-            :disabled="minerals.lt(64000)"
+            :disabled="minerals.lt(VESPENE_CONVERSION_RATE)"
             class="w-full sm:w-auto px-4 py-2 rounded text-xs font-bold transition-all shadow-lg"
-            :class="minerals.gte(64000) ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer shadow-green-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
+            :class="minerals.gte(VESPENE_CONVERSION_RATE) ? 'bg-green-600 hover:bg-green-500 text-white cursor-pointer shadow-green-600/30' : 'bg-gray-800 text-gray-500 cursor-not-allowed'"
           >
             BUY MAX VESPENE ({{ maxPossibleV }}V)
           </button>

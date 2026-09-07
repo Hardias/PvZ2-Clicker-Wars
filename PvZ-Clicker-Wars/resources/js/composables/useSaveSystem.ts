@@ -2,11 +2,13 @@ import { Ref, ref } from 'vue';
 import { ZealotStats } from '../types/Zealot';
 import { InventorySlot } from '../types/Item';
 import { ProbeBase } from '../types/ProbeBase';
+import { SkillTreeState } from '../types/SkillTree';
 
 export interface SaveData {
   zealot: ZealotStats;
   inventory: InventorySlot[];
   probeBase: ProbeBase;
+  skillTree?: SkillTreeState;
   updatedAt: number;
 }
 
@@ -22,10 +24,23 @@ export interface SlotMeta {
 export function useSaveSystem(
   zealotState: Ref<ZealotStats>,
   inventorySlots: Ref<InventorySlot[]>,
-  probeBase: Ref<ProbeBase>
+  probeBase: Ref<ProbeBase>,
+  skillTreeState: Ref<SkillTreeState>
 ) {
-  // Reactive trigger to ensure Vue components react to save storage updates
+  // Reactive counter bumped on every save so that computed values derived from
+  // localStorage (e.g. slot metadata) can react to storage updates.
   const saveTrigger = ref(0);
+
+  /** Build a full save payload from current reactive state */
+  function buildSaveData(): SaveData {
+    return {
+      zealot: zealotState.value,
+      inventory: inventorySlots.value,
+      probeBase: probeBase.value,
+      skillTree: skillTreeState.value,
+      updatedAt: Date.now(),
+    };
+  }
 
   /** Get localStorage key for a specific slot */
   function getSlotKey(slot: 'A' | 'B' | 'C' | 'autosave'): string {
@@ -35,14 +50,9 @@ export function useSaveSystem(
   /** Save game state to a specific manual slot (A, B, or C) */
   function saveToSlot(slot: 'A' | 'B' | 'C') {
     try {
-      const data: SaveData = {
-        zealot: zealotState.value,
-        inventory: inventorySlots.value,
-        probeBase: probeBase.value,
-        updatedAt: Date.now(),
-      };
+      const data: SaveData = buildSaveData();
       localStorage.setItem(getSlotKey(slot), JSON.stringify(data));
-      localStorage.setItem('pvz2_zelot_deaths', String(zealotState.value.deaths || 0));
+      localStorage.setItem('pvz2_zealot_deaths', String(zealotState.value.deaths || 0));
       saveTrigger.value++;
     } catch (e) {
       console.error(`Failed to save game to Slot ${slot}:`, e);
@@ -52,18 +62,20 @@ export function useSaveSystem(
   /** Automatically save game state to the autosave slot */
   function autoSave() {
     try {
-      const data: SaveData = {
-        zealot: zealotState.value,
-        inventory: inventorySlots.value,
-        probeBase: probeBase.value,
-        updatedAt: Date.now(),
-      };
+      const data: SaveData = buildSaveData();
       localStorage.setItem(getSlotKey('autosave'), JSON.stringify(data));
-      localStorage.setItem('pvz2_zelot_deaths', String(zealotState.value.deaths || 0));
+      localStorage.setItem('pvz2_zealot_deaths', String(zealotState.value.deaths || 0));
       saveTrigger.value++;
     } catch (e) {
       console.error('Failed to auto-save game:', e);
     }
+  }
+
+  /** Validate that a parsed save has a usable shape */
+  function isValidSave(data: unknown): data is Record<string, unknown> {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as Record<string, unknown>;
+    return typeof d.updatedAt === 'number' && d.updatedAt > 0;
   }
 
   /** Load save data from a specific slot */
@@ -71,7 +83,12 @@ export function useSaveSystem(
     try {
       const raw = localStorage.getItem(getSlotKey(slot));
       if (raw) {
-        return JSON.parse(raw) as SaveData;
+        const parsed = JSON.parse(raw) as unknown;
+        if (!isValidSave(parsed)) {
+          console.warn(`Save slot ${slot} is malformed or empty; ignoring.`);
+          return null;
+        }
+        return parsed as unknown as SaveData;
       }
     } catch (e) {
       console.error(`Failed to load game from Slot ${slot}:`, e);
@@ -81,8 +98,6 @@ export function useSaveSystem(
 
   /** Get metadata (timestamps, existence) for all save slots */
   function getAllSlotMetadata(): Record<'A' | 'B' | 'C' | 'autosave', SlotMeta> {
-    const _ = saveTrigger.value; // Track dependency reactively
-
     const slots: ('A' | 'B' | 'C' | 'autosave')[] = ['A', 'B', 'C', 'autosave'];
     const meta: Partial<Record<'A' | 'B' | 'C' | 'autosave', SlotMeta>> = {};
 
@@ -90,11 +105,11 @@ export function useSaveSystem(
       const raw = localStorage.getItem(getSlotKey(s));
       if (raw) {
         try {
-          const parsed = JSON.parse(raw) as SaveData;
-          if (parsed && typeof parsed.updatedAt === 'number' && parsed.updatedAt > 0) {
+          const parsed = JSON.parse(raw) as unknown;
+          if (isValidSave(parsed)) {
             meta[s] = {
               slot: s,
-              updatedAt: parsed.updatedAt,
+              updatedAt: (parsed as Record<string, unknown>).updatedAt as number,
               exists: true,
             };
           } else {
@@ -135,6 +150,21 @@ export function useSaveSystem(
     return null;
   }
 
+  /** Delete a single save slot (A, B, C, or autosave) */
+  function deleteSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
+    localStorage.removeItem(getSlotKey(slot));
+    saveTrigger.value++;
+  }
+
+  /** Delete every save slot (A, B, C, and autosave) at once */
+  function deleteAllSlots() {
+    localStorage.removeItem(getSlotKey('A'));
+    localStorage.removeItem(getSlotKey('B'));
+    localStorage.removeItem(getSlotKey('C'));
+    localStorage.removeItem(getSlotKey('autosave'));
+    saveTrigger.value++;
+  }
+
   return {
     saveToSlot,
     autoSave,
@@ -142,5 +172,8 @@ export function useSaveSystem(
     getAllSlotMetadata,
     getMostRecentSlot,
     loadLatestGame,
+    deleteSlot,
+    deleteAllSlots,
+    saveTrigger,
   };
 }

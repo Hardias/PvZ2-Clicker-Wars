@@ -1,4 +1,4 @@
-import { TierId, TIER_IDS, TIER_START_SS_LEVEL, getTierOrdinal } from './ranks';
+import { TierId, TIER_IDS, getTierOrdinal } from './ranks';
 import { WallTier } from '../types/ProbeBase';
 
 /** Shared scaling constants so walls, shop items and ranks stay in perfect sync. */

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { ZealotStats } from '../types/Zealot';
 import { ItemStats } from '../types/Item';
+import { SkillBonuses, DEFAULT_SKILL_BONUSES } from '../types/SkillTree';
 import { formatNumber } from '../utils/format';
 import { BigNum, big } from '../utils/bigNumber';
 
@@ -14,9 +15,32 @@ interface Props {
   defense: number;
   hpRegen: BigNum;
   equipmentStats: ItemStats & { totalDefenseReduction?: number };
+  bonuses?: SkillBonuses;
 }
 
 const props = defineProps<Props>();
+
+const activeBonuses = computed(() => props.bonuses ?? DEFAULT_SKILL_BONUSES);
+
+const hasSkillBonuses = computed(() => {
+  const b = activeBonuses.value;
+  return b.damageMultiplier > 1
+    || b.attackSpeedMultiplier > 1
+    || b.critChance > 0
+    || b.critMultiplier > 2
+    || b.maxHpMultiplier > 1
+    || b.hpRegenPercent > 0
+    || b.turretDamageReduction > 0
+    || b.thornsReflect > 0
+    || b.extraTeleports > 0
+    || b.vespeneConversionMultiplier > 1
+    || b.autoVespenePercent > 0
+    || b.killBountyPercent > 0
+    || b.vespeneBountyPercent > 0
+    || b.shopPriceReduction > 0
+    || b.vespeneItemDiscount > 0
+    || b.comboMaxBonus > 0;
+});
 
 const hpPercentage = computed(() => {
   if (big(props.maxHp).lte(0)) return 0;
@@ -39,6 +63,20 @@ function formatDps(value: BigNum | number): string {
   if (!n) return '0';
   if (n < 1000) return n.toFixed(1).replace(/\.0$/, '');
   return formatNumber(big(value));
+}
+
+function formatPlayTime(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function formatCritChance(chance: number): string {
+  return `${Math.round(chance * 100)}%`;
 }
 </script>
 
@@ -105,6 +143,87 @@ function formatDps(value: BigNum | number): string {
       <div class="flex justify-between">
         <span class="text-gray-400">Current DPS:</span>
         <span class="font-mono text-purple-300 font-semibold">{{ formatDps(currentDps) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400" title="Total minerals earned this run">Minerals earned:</span>
+        <span class="font-mono text-amber-300 font-semibold">{{ formatNumber(zealot.totalMineralsEarned ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400" title="Total vespene gas earned this run">Vespene earned:</span>
+        <span class="font-mono text-green-300 font-semibold">{{ formatNumber(zealot.totalVespeneEarned ?? 0) }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-400" title="Total time played this run">Play time:</span>
+        <span class="font-mono text-cyan-300 font-semibold">{{ formatPlayTime(zealot.totalPlayTimeSeconds ?? 0) }}</span>
+      </div>
+    </div>
+
+    <!-- Skill Tree Bonus Summary -->
+    <div v-if="hasSkillBonuses"
+      class="mt-3 bg-amber-950/40 border border-amber-800/40 rounded p-2.5 text-[10px] grid grid-cols-2 gap-1 text-amber-200">
+      <div v-if="activeBonuses.damageMultiplier > 1" class="flex justify-between">
+        <span class="text-gray-400">Dmg mult:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ Math.round((activeBonuses.damageMultiplier - 1) * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.attackSpeedMultiplier > 1" class="flex justify-between">
+        <span class="text-gray-400">Speed:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ Math.round((activeBonuses.attackSpeedMultiplier - 1) * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.critChance > 0" class="flex justify-between">
+        <span class="text-gray-400">Crit chance:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ formatCritChance(activeBonuses.critChance) }}</span>
+      </div>
+      <div v-if="activeBonuses.critMultiplier > 2" class="flex justify-between">
+        <span class="text-gray-400">Crit dmg:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ activeBonuses.critMultiplier }}x</span>
+      </div>
+      <div v-if="activeBonuses.maxHpMultiplier > 1" class="flex justify-between">
+        <span class="text-gray-400">HP mult:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ Math.round((activeBonuses.maxHpMultiplier - 1) * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.hpRegenPercent > 0" class="flex justify-between">
+        <span class="text-gray-400">Regen:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ (activeBonuses.hpRegenPercent * 100).toLocaleString() }}% HP/s</span>
+      </div>
+      <div v-if="activeBonuses.turretDamageReduction > 0" class="flex justify-between">
+        <span class="text-gray-400">Turret resist:</span>
+        <span class="font-mono font-semibold text-amber-300">-{{ Math.round(activeBonuses.turretDamageReduction * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.thornsReflect > 0" class="flex justify-between">
+        <span class="text-gray-400">Reflect:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ Math.round(activeBonuses.thornsReflect * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.extraTeleports > 0" class="flex justify-between">
+        <span class="text-gray-400">Teleports:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ activeBonuses.extraTeleports }}</span>
+      </div>
+      <div v-if="activeBonuses.killBountyPercent > 0" class="flex justify-between">
+        <span class="text-gray-400">Kill bounty:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ Math.round(activeBonuses.killBountyPercent * 100) }}% wall HP</span>
+      </div>
+      <div v-if="activeBonuses.vespeneBountyPercent > 0" class="flex justify-between">
+        <span class="text-gray-400">Vespene bounty:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ Math.round(activeBonuses.vespeneBountyPercent * 100) }}% wall HP</span>
+      </div>
+      <div v-if="activeBonuses.autoVespenePercent > 0" class="flex justify-between">
+        <span class="text-gray-400">Vespene siphon:</span>
+        <span class="font-mono font-semibold text-amber-300">{{ Math.round(activeBonuses.autoVespenePercent * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.vespeneConversionMultiplier > 1" class="flex justify-between">
+        <span class="text-gray-400">V conversion:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ Math.round((activeBonuses.vespeneConversionMultiplier - 1) * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.shopPriceReduction > 0" class="flex justify-between">
+        <span class="text-gray-400">Shop discount:</span>
+        <span class="font-mono font-semibold text-amber-300">-{{ Math.round(activeBonuses.shopPriceReduction * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.vespeneItemDiscount > 0" class="flex justify-between">
+        <span class="text-gray-400">V shop items:</span>
+        <span class="font-mono font-semibold text-amber-300">-{{ Math.round(activeBonuses.vespeneItemDiscount * 100) }}%</span>
+      </div>
+      <div v-if="activeBonuses.comboMaxBonus > 0" class="flex justify-between">
+        <span class="text-gray-400">Combo max:</span>
+        <span class="font-mono font-semibold text-amber-300">+{{ activeBonuses.comboMaxBonus }}</span>
       </div>
     </div>
   </div>

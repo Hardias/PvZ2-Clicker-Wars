@@ -108,14 +108,6 @@ export function useAudio() {
   // Iron March uses the timeline + neuro wobble bass; the rest keep doing
   // the original random section rotation.
 
-  const NOTE = {
-    D1: 36.71, E1: 41.20, F1: 43.65, G1: 49.00,
-    A1: 55.00, Bb1: 58.27, B1: 61.74,
-    C2: 65.41, D2: 73.42, E2: 82.41, F2: 87.31, G2: 98.00,
-    A2: 110.00, Bb2: 116.54, B2: 123.47, C3: 130.81, Db3: 138.59,
-    D3: 146.83, Eb3: 155.56, E3: 164.81, F3: 174.61, G3: 196.00,
-  };
-
   // Shared drum pattern flavours used across tracks
   const KICK_FULL = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0];
   const KICK_MK = [1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0];
@@ -222,7 +214,7 @@ export function useAudio() {
     const raw = localStorage.getItem('pvz2_music_track');
     if (raw !== null) {
       const n = parseInt(raw, 10);
-      if (!isNaN(n) && n >= 0 && n < TRACKS.length) return n;
+      if (!isNaN(n) && n >= 0 && n < 6) return n;
     }
     return 0;
   }
@@ -562,8 +554,6 @@ export function useAudio() {
   const mkSta2 = [146.83, 146.83, 220.00, 0, 130.81, 130.81, 196.00, 0, 155.56, 155.56, 233.08, 0, 155.56, 146.83, 130.81, 0];
   const mkSta3 = [146.83, 146.83, 146.83, 146.83, 155.56, 155.56, 155.56, 155.56, 164.81, 164.81, 164.81, 164.81, 174.61, 174.61, 146.83, 174.61];
   // Tribal sub-boom doubling the kick
-  const mkChg0 = [36.71, 0, 0, 0, 36.71, 0, 0, 0, 36.71, 0, 0, 0, 36.71, 0, 36.71, 0];
-  const mkChg1 = [36.71, 0, 0, 0, 0, 0, 36.71, 0, 36.71, 0, 0, 0, 36.71, 0, 36.71, 0];
   const mkChg2 = [36.71, 0, 36.71, 36.71, 36.71, 0, 36.71, 36.71, 36.71, 0, 36.71, 36.71, 36.71, 0, 36.71, 0];
   const mkChg3 = [36.71, 36.71, 36.71, 0, 36.71, 36.71, 36.71, 0, 36.71, 36.71, 36.71, 0, 36.71, 36.71, 36.71, 36.71];
 
@@ -719,7 +709,6 @@ export function useAudio() {
   const imStDrpB = [0, 0, 0, 0, 174.61, 0, 174.61, 0, 0, 0, 0, 0, 185.00, 0, 196.00, 0];
   const imStMaA = [110.00, 0, 110.00, 0, 116.54, 0, 110.00, 0, 110.00, 0, 138.59, 0, 110.00, 0, 110.00, 0];
   const imStMbA = [293.66, 0, 0, 0, 311.13, 0, 261.63, 0, 293.66, 0, 0, 0, 293.66, 0, 311.13, 0];
-  const imStMbB = [110.00, 110.00, 0, 0, 116.54, 0, 110.00, 0, 110.00, 0, 138.59, 0, 130.81, 138.59, 146.83, 0];
   const imStRis = [110.00, 0, 116.54, 0, 130.81, 0, 138.59, 0, 146.83, 0, 155.56, 0, 164.81, 0, 174.61, 0];
   const imStFin = [293.66, 0, 0, 0, 311.13, 0, 261.63, 0, 293.66, 0, 0, 0, 293.66, 0, 311.13, 0];
   const imStFin2 = [293.66, 293.66, 311.13, 311.13, 293.66, 293.66, 349.23, 349.23, 311.13, 311.13, 293.66, 293.66, 311.13, 349.23, 293.66, 0];
@@ -734,7 +723,6 @@ export function useAudio() {
   const imTom2 = [0, 0, 0, 0, 98.00, 0, 98.00, 0, 110.00, 0, 110.00, 0, 130.81, 146.83, 155.56, 0];
   const imTomDrp = [0, 0, 98.00, 0, 0, 0, 98.00, 0, 0, 0, 110.00, 0, 0, 0, 130.81, 146.83];
   const imTomBrk = [0, 0, 0, 0, 73.42, 0, 0, 0, 0, 0, 0, 0, 110.00, 0, 130.81, 0];
-  const imCshIdle = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const imCsh0 = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
   const imCsh1 = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const imCsh2 = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
@@ -1088,7 +1076,7 @@ export function useAudio() {
     ],
   };
 
-  const TRACKS: TrackDef[] = [
+  const BIG_PICKLE_TRACKS: TrackDef[] = [
     INDUSTRIAL_TRACK,
     FATALITY_TRACK,
     RIP_AND_TEAR_TRACK,
@@ -1097,13 +1085,48 @@ export function useAudio() {
     IRON_MARCH_TRACK,
   ];
 
+  const GEMINI_TRACKS: TrackDef[] = BIG_PICKLE_TRACKS.map((t, idx) => ({
+    ...t,
+    id: `${t.id}-gemini`,
+    name: `${t.name} (g)`,
+    bpm: t.bpm + 6 + (idx * 2),
+    drums: {
+      ...t.drums,
+      kick: { ...t.drums.kick, gain: t.drums.kick.gain * 1.05 },
+    },
+  }));
+
+  function loadTrackPack(): 'big_pickle' | 'gemini' {
+    const raw = localStorage.getItem('pvz2_track_pack');
+    if (raw === 'gemini' || raw === 'big_pickle') return raw;
+    return 'big_pickle';
+  }
+
+  const trackPack = ref<'big_pickle' | 'gemini'>(loadTrackPack());
+
+  const TRACKS = computed<TrackDef[]>(() => {
+    return trackPack.value === 'gemini' ? GEMINI_TRACKS : BIG_PICKLE_TRACKS;
+  });
+
   const trackIndex = ref(loadTrackIndex());
-  const currentTrackName = computed<string>(() => TRACKS[trackIndex.value].name);
-  const currentTrackEmoji = computed<string>(() => TRACKS[trackIndex.value].emoji);
+  const currentTrackName = computed<string>(() => TRACKS.value[trackIndex.value]?.name ?? TRACKS.value[0].name);
+  const currentTrackEmoji = computed<string>(() => TRACKS.value[trackIndex.value]?.emoji ?? TRACKS.value[0].emoji);
+
+  function setTrackPack(pack: 'big_pickle' | 'gemini') {
+    const wasPlaying = isPlaying.value && !musicMuted.value;
+    if (wasPlaying) stopMusic();
+    trackPack.value = pack;
+    localStorage.setItem('pvz2_track_pack', pack);
+    const active = pack === 'gemini' ? GEMINI_TRACKS : BIG_PICKLE_TRACKS;
+    if (trackIndex.value >= active.length) {
+      trackIndex.value = 0;
+    }
+    if (wasPlaying) startMusic();
+  }
 
   // ── Track-aware scheduler state machine ───────────────────────────
   function enterSection(idx: number) {
-    const track = TRACKS[trackIndex.value];
+    const track = TRACKS.value[trackIndex.value];
     currentSectionIdx = idx;
     sectionStepsLeft = idx === track.mainSection
       ? track.mainLoops
@@ -1118,7 +1141,7 @@ export function useAudio() {
     const step = currentStep % 16;
     const time = audio.currentTime + 0.05;
 
-    const track = TRACKS[trackIndex.value];
+    const track = TRACKS.value[trackIndex.value];
     const section = track.sections[currentSectionIdx];
     const stepDur = 60 / track.bpm / 2 * 1000;
     // Humanized groove: swing the offbeat 8ths + tiny random jitter
@@ -1201,7 +1224,7 @@ export function useAudio() {
     songCtx = audio;
     songDest = musicGain;
     currentStep = 0;
-    const track = TRACKS[trackIndex.value];
+    const track = TRACKS.value[trackIndex.value];
     if (track.timeline && track.timeline.length > 0) {
       timelinePos = 0;
       const entry = track.timeline[0];
@@ -1211,7 +1234,7 @@ export function useAudio() {
       enterSection(track.mainSection);
     }
 
-    const stepDur = 60 / TRACKS[trackIndex.value].bpm / 2 * 1000;
+    const stepDur = 60 / TRACKS.value[trackIndex.value].bpm / 2 * 1000;
     beatTimer = window.setInterval(schedulerTick, stepDur);
     isPlaying.value = true;
   }
@@ -1244,7 +1267,7 @@ export function useAudio() {
   function nextTrack() {
     const wasPlaying = isPlaying.value && !musicMuted.value;
     if (wasPlaying) stopMusic();
-    trackIndex.value = (trackIndex.value + 1) % TRACKS.length;
+    trackIndex.value = (trackIndex.value + 1) % TRACKS.value.length;
     localStorage.setItem('pvz2_music_track', String(trackIndex.value));
     if (wasPlaying) startMusic();
   }
@@ -1628,6 +1651,8 @@ export function useAudio() {
     isPlaying,
     currentTrackName,
     currentTrackEmoji,
+    trackPack,
+    setTrackPack,
     startMusic,
     stopMusic,
     nextTrack,

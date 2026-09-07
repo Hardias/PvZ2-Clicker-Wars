@@ -45,3 +45,64 @@
       48px 48px;
   }
 }
+
+/*
+ * DEV TOOL: forced screen-type emulation ("ssy" command in the DEV terminal).
+ * Toggles the app between its desktop and mobile layouts regardless of the
+ * real viewport width, by overriding the handful of structural responsive
+ * classes the whole layout depends on. The markers are added in the .vue
+ * templates via data-dev attributes.
+ *
+ * These rules are intentionally NOT inside @layer so they always win over the
+ * Tailwind-sourced responsive utilities (plain unlayered styles beat layered).
+ */
+.dev-mobile-view [data-dev='content'] {
+  width: 100%;
+  max-width: 430px;
+  margin-inline: auto;
+}
+.dev-mobile-view [data-dev='layout-main'] {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.dev-mobile-view [data-dev='layout-battle'] {
+  order: 1;
+}
+.dev-mobile-view [data-dev='layout-stats'] {
+  order: 2;
+}
+.dev-mobile-view [data-dev='layout-equipment'] {
+  order: 3;
+}
+.dev-mobile-view [data-dev='nav-battle'],
+.dev-mobile-view [data-dev='nav-shop'] {
+  flex-grow: 1;
+}
+.dev-mobile-view [data-dev='header-hamburger'] {
+  display: flex;
+}
+.dev-mobile-view [data-dev='header-desktop-actions'] {
+  display: none;
+}
+
+.dev-desktop-view [data-dev='layout-main'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.dev-desktop-view [data-dev='layout-battle'] {
+  order: 2;
+}
+.dev-desktop-view [data-dev='layout-stats'] {
+  order: 1;
+}
+.dev-desktop-view [data-dev='layout-equipment'] {
+  order: 3;
+}
+.dev-desktop-view [data-dev='nav-battle'],
+.dev-desktop-view [data-dev='nav-shop'] {
+  flex-grow: 0;
+}
+.dev-desktop-view [data-dev='header-hamburger'] {
+  display: none;
+}
+.dev-desktop-view [data-dev='header-desktop-actions'] {
+  display: flex;
+}

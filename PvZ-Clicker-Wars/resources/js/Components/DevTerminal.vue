@@ -3,8 +3,10 @@ import { ref, nextTick, watch, onMounted } from 'vue';
 
 export interface DevActions {
   grantVespene: () => void;
+  grantXp: (amount: number) => void;
   hardReset: () => void;
   rankup: (times: number) => void;
+  switchScreenType: () => string;
 }
 
 interface Props {
@@ -26,8 +28,10 @@ const pending = ref<PendingPrompt>(null);
 
 const commandsHelp: string[] = [
   '"abracadabra" - infinite Vespene gas for the Zealot',
+  '"xp" - grant 1000 Zealot XP for the skill tree',
   '"reset" - reset the world (keeps inventory & resources)',
   '"rankup" - raise wall rank and shop items',
+  '"ssy" - switch screen type (desktop <-> mobile view)',
   '"help" - show this list',
 ];
 
@@ -94,6 +98,10 @@ function handleSubmit() {
       props.actions.grantVespene();
       append('Wish granted mighty one!');
       break;
+    case 'xp':
+      props.actions.grantXp(1000);
+      append('1000 Zealot XP granted mighty one!');
+      break;
     case 'reset':
       props.actions.hardReset();
       append('You are to mighty mighty one i cant reset you, but the rest is easy and done..');
@@ -102,6 +110,11 @@ function handleSubmit() {
       pending.value = 'rankupConfirm';
       append('Power granted mighty one, should i repeat this? (Y/N)?');
       break;
+    case 'ssy': {
+      const screen = props.actions.switchScreenType();
+      append(`Your screen now shows the ${screen === 'mobile' ? 'MOBILE' : 'DESKTOP'} view, mighty one.`);
+      break;
+    }
     case 'help':
       pending.value = 'helpConfirm';
       append('Ow mighty one are we forgetfull today?');

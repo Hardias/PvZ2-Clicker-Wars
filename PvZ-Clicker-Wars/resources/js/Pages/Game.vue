@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { useInventory } from '../composables/useInventory';
-import { useZealot } from '../composables/useZealot';
+import { useInventory, createEmptyInventorySlots } from '../composables/useInventory';
+import { useZealot, createDefaultZealotState } from '../composables/useZealot';
 import { useCombat } from '../composables/useCombat';
 import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
 import { useAudio } from '../composables/useAudio';
-import { Item } from '../types/Item';
+import { useCombo } from '../composables/useCombo';
+import { useSkillTree, createDefaultSkillTreeState } from '../composables/useSkillTree';
+import { Item, InventorySlot } from '../types/Item';
+import type { ZealotStats } from '../types/Zealot';
+import type { ProbeBase } from '../types/ProbeBase';
 import { scaleShopItem, getShopMultiplier, getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
 import { formatNumber } from '../utils/format';
 import { big } from '../utils/bigNumber';
+import { SKILL_NODES, SkillTreeState } from '../types/SkillTree';
+import { AVAILABLE_SHOP_ITEMS } from '../data/shopCatalog';
 
 import GameHeader from '../Components/GameHeader.vue';
 import AudioVisualizer from '../Components/AudioVisualizer.vue';
@@ -20,6 +26,8 @@ import SaveModal from '../Components/SaveModal.vue';
 import LoadModal from '../Components/LoadModal.vue';
 import DevTerminal from '../Components/DevTerminal.vue';
 import TutorialOverlay from '../Components/TutorialOverlay.vue';
+import SkillTreeModal from '../Components/SkillTreeModal.vue';
+import ZealotXpBar from '../Components/ZealotXpBar.vue';
 
 const currentView = ref<'battle' | 'shop'>('battle');
 const isAtShop = computed(() => currentView.value === 'shop');
@@ -37,21 +45,45 @@ function toggleAutosave() {
 
 // Composables setup
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
-const { state: zealotState, maxHp, attackPower, attackSpeed, currentDps, defense, hpRegen, takeDamage, heal, gainMinerals, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop);
+const skillTree = useSkillTree();
+const { state: zealotState, maxHp, attackPower, attackSpeed, currentDps, defense, hpRegen, takeDamage, computeReducedDamage, heal, gainMinerals, addVespene, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop, skillTree.bonuses);
 const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase, advanceWallCycles } = useCombat();
-const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame } = useSaveSystem(zealotState, slots, probeBase);
+const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame, deleteSlot, deleteAllSlots, saveTrigger } = useSaveSystem(zealotState, slots, probeBase, skillTree.state);
+const combo = useCombo();
 const audio = useAudio();
+
+// Apply skill tree combo max bonus to combo system
+watch(skillTree.bonuses, (b) => {
+  combo.setMaxCombo(50 + b.comboMaxBonus);
+});
+combo.setMaxCombo(50 + skillTree.bonuses.value.comboMaxBonus);
 
 const showShopModal = ref(false);
 const showSaveModal = ref(false);
 const showLoadModal = ref(false);
 const showDevTerminal = ref(false);
 const showTutorial = ref(false);
+const showSkillTreeModal = ref(false);
 const saveNotificationText = ref('Game loaded!');
 const autoSaveNotification = ref(false);
 let notificationTimeout: number | null = null;
 
 const disablePather = ref<boolean>(localStorage.getItem('pvz2_disable_pather') === 'true');
+
+const devScreenType = ref<'auto' | 'mobile' | 'desktop'>(
+  localStorage.getItem('pvz2_dev_screen_type') === 'mobile'
+    ? 'mobile'
+    : localStorage.getItem('pvz2_dev_screen_type') === 'desktop'
+      ? 'desktop'
+      : 'auto',
+);
+
+function toggleDevScreenType(): 'mobile' | 'desktop' {
+  const next = devScreenType.value === 'desktop' ? 'mobile' : 'desktop';
+  devScreenType.value = next;
+  localStorage.setItem('pvz2_dev_screen_type', next);
+  return next;
+}
 
 function toggleDisablePather() {
   disablePather.value = !disablePather.value;
@@ -63,10 +95,12 @@ function toggleDisablePather() {
 }
 
 const slotMetadata = computed<Record<'A' | 'B' | 'C' | 'autosave', SlotMeta>>(() => {
+  void saveTrigger.value;
   return getAllSlotMetadata();
 });
 
 const mostRecentSlot = computed(() => {
+  void saveTrigger.value;
   return getMostRecentSlot();
 });
 
@@ -100,42 +134,55 @@ function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
     if (saved.zealot) loadState(saved.zealot);
     if (saved.inventory) loadInventory(saved.inventory);
     if (saved.probeBase) loadCombatState(saved.probeBase);
+    if (saved.skillTree) skillTree.deserialize(saved.skillTree);
     showLoadModal.value = false;
     const slotName = slot === 'autosave' ? 'Autosave' : `Slot ${slot}`;
     showSaveNotification(`Game loaded from ${slotName}!`);
   } else {
-    alert(`Save slot ${slot === 'autosave' ? 'Autosave' : slot} is empty and contains no saved game.`);
+    showSaveNotification(`Save slot ${slot === 'autosave' ? 'Autosave' : slot} is empty and contains no saved game.`);
   }
 }
 
-// Reset current session without deleting save slots, keeping death counter
-function handleReset() {
-  const currentDeaths = zealotState.value.deaths;
-  const infiniteVespene = zealotState.value.infiniteVespene;
-  zealotState.value = {
-    hp: big(100),
-    maxHp: big(100),
-    baseAttack: big(15),
-    baseAttackSpeed: 1.0,
-    baseDefense: 5,
-    baseHpRegen: big(1.0),
-    minerals: big(50),
-    vespeneGas: big(0),
-    infiniteVespene,
-    emergencyTeleports: 2,
-    deaths: currentDeaths,
-    isImmobilized: false,
-    wallsKilled: 0,
-    damageDone: big(0),
-    highestAverageDps: big(0),
+function handleDeleteSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
+  deleteSlot(slot);
+  const slotName = slot === 'autosave' ? 'Autosave' : `Slot ${slot}`;
+  showSaveNotification(`${slotName} save deleted!`);
+}
+
+function handleDeleteAllSlots() {
+  deleteAllSlots();
+  showSaveNotification('All saves destroyed!');
+}
+
+// Dynamic fresh game state: built purely from the default factories, so any new field
+// added to ZealotStats / ProbeBase / inventory slots / skill tree is reset automatically.
+function buildFreshGameState(): {
+  zealot: ZealotStats;
+  probeBase: ProbeBase;
+  slots: InventorySlot[];
+  skillTree: SkillTreeState;
+} {
+  return {
+    zealot: createDefaultZealotState(),
+    probeBase: createProbeBase(0, null),
+    slots: createEmptyInventorySlots(),
+    skillTree: createDefaultSkillTreeState(),
   };
-  slots.value = slots.value.map((_, idx) => ({
-    slotIndex: idx,
-    category: 'blades',
-    item: null,
-  }));
-  probeBase.value = createProbeBase(0, null);
+}
+
+// Captured once at app start as the reference "begin state". Resets use the same factories,
+// so the reset never has to be rewritten when a new field is added to a default state.
+// Reset current session without deleting save slots, keeping only the death counter.
+// Everything else (zealot, probe base, inventory, shop cycle, skill tree, combo) returns
+// to the values the start state was built from.
+function handleReset() {
+  const start = buildFreshGameState();
+  zealotState.value = { ...start.zealot, deaths: zealotState.value.deaths };
+  slots.value = start.slots;
+  probeBase.value = start.probeBase;
+  skillTree.reset();
   stopCombat(zealotState.value);
+  combo.resetCombo();
   showSaveNotification('Game reset to the starting state!');
 }
 
@@ -144,7 +191,7 @@ function handleUnequip(slotIndex: number) {
   const item = unequipItem(slotIndex);
   if (item) {
     if (item.currency === 'vespene') {
-      zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(item.cost);
+      addVespene(item.cost);
     } else {
       gainMinerals(item.cost);
     }
@@ -166,84 +213,28 @@ watch(currentView, (newView) => {
 });
 
 // Full catalog of Zealot Shop items with correct Mineral/Vespene costs
-const availableShopItems: Item[] = [
-  // --- BLADES ---
-  { id: 'b_copper', name: 'Copper blade', category: 'blades', rarity: 'common', stats: { damage: 2 }, cost: 100, currency: 'minerals', description: '100M | +2 Damage' },
-  { id: 'b_iron', name: 'Iron blade', category: 'blades', rarity: 'common', stats: { damage: 4 }, cost: 200, currency: 'minerals', description: '200M | +4 Damage' },
-  { id: 'b_steel', name: 'Steel blade', category: 'blades', rarity: 'common', stats: { damage: 8 }, cost: 400, currency: 'minerals', description: '400M | +8 Damage' },
-  { id: 'b_silver', name: 'Silver blade', category: 'blades', rarity: 'rare', stats: { damage: 16 }, cost: 800, currency: 'minerals', description: '800M | +16 Damage' },
-  { id: 'b_golden', name: 'Golden blade', category: 'blades', rarity: 'rare', stats: { damage: 32 }, cost: 1600, currency: 'minerals', description: '1600M | +32 Damage' },
-  { id: 'b_platinum', name: 'Platinum blade', category: 'blades', rarity: 'epic', stats: { damage: 64 }, cost: 3200, currency: 'minerals', description: '3200M | +64 Damage' },
-  { id: 'b_mithril', name: 'Mithril blade', category: 'blades', rarity: 'epic', stats: { damage: 128 }, cost: 6400, currency: 'minerals', description: '6400M | +128 Damage' },
-  { id: 'b_diamond', name: 'Diamond blade', category: 'blades', rarity: 'legendary', stats: { damage: 256 }, cost: 12800, currency: 'minerals', description: '12800M | +256 Damage' },
-  { id: 'b_energizer', name: 'Energizer blade', category: 'blades', rarity: 'legendary', stats: { damage: 1280 }, cost: 1, currency: 'vespene', description: '1V | +1280 Damage (Max Glove Effect Built-in)' },
-  { id: 'b_pulverizer', name: 'Pulverizer blade', category: 'blades', rarity: 'legendary', stats: { damage: 2560 }, cost: 2, currency: 'vespene', description: '2V | +2560 Damage (Max Glove Effect Built-in)' },
-  { id: 'b_atomizer', name: 'Atomizer blade', category: 'blades', rarity: 'legendary', stats: { damage: 10240 }, cost: 8, currency: 'vespene', description: '8V | +10240 Damage (Max Glove Effect Built-in)' },
-  { id: 'b_ultimate', name: 'Ultimate blade', category: 'blades', rarity: 'legendary', stats: { damage: 40960 }, cost: 32, currency: 'vespene', description: '32V | +40960 Damage (Max Glove Effect Built-in)' },
-  { id: 'b_plutonium', name: 'Plutonium blade', category: 'blades', rarity: 'legendary', stats: { damage: 61440 }, cost: 160, currency: 'vespene', description: '160V | +61440 Damage (Max Glove Effect Built-in)' },
-  { id: 'b_radiant', name: 'Radiant blade', category: 'blades', rarity: 'legendary', stats: { damage: 81920 }, cost: 512, currency: 'vespene', description: '512V | +81920 Damage (Max Glove Effect Built-in)' },
-
-  // --- GLOVES (Attack Speed) ---
-  { id: 'g_cloth', name: 'Cloth gloves', category: 'gloves', rarity: 'common', stats: { attackSpeed: 0.2 }, cost: 100, currency: 'minerals', description: '100M | +20% Attack Speed' },
-  { id: 'g_leather', name: 'Leather gloves', category: 'gloves', rarity: 'common', stats: { attackSpeed: 0.4 }, cost: 200, currency: 'minerals', description: '200M | +40% Attack Speed' },
-  { id: 'g_hide', name: 'Reinforced Hide gloves', category: 'gloves', rarity: 'common', stats: { attackSpeed: 0.8 }, cost: 400, currency: 'minerals', description: '400M | +80% Attack Speed' },
-  { id: 'g_scale', name: 'Scale gloves', category: 'gloves', rarity: 'rare', stats: { attackSpeed: 1.0 }, cost: 800, currency: 'minerals', description: '800M | +100% Attack Speed' },
-  { id: 'g_bone', name: 'Bone gloves', category: 'gloves', rarity: 'rare', stats: { attackSpeed: 1.5 }, cost: 1600, currency: 'minerals', description: '1600M | +150% Attack Speed' },
-  { id: 'g_electronic', name: 'Electronic gloves', category: 'gloves', rarity: 'epic', stats: { attackSpeed: 2.0 }, cost: 3200, currency: 'minerals', description: '3200M | +200% Attack Speed' },
-  { id: 'g_mega', name: 'Mega gloves', category: 'gloves', rarity: 'epic', stats: { attackSpeed: 3.0 }, cost: 6400, currency: 'minerals', description: '6400M | +300% Attack Speed' },
-  { id: 'g_super', name: 'Super gloves', category: 'gloves', rarity: 'legendary', stats: { attackSpeed: 4.0 }, cost: 12800, currency: 'minerals', description: '12800M | +400% Attack Speed' },
-
-  // --- ARMOR (Damage Reduction) ---
-  { id: 'ar_wood', name: 'Wooden armor', category: 'armor', rarity: 'common', stats: { defenseReduction: 0.09 }, cost: 100, currency: 'minerals', description: '100M | 9% Damage Reduction' },
-  { id: 'ar_rwood', name: 'Reinforced Wooden armor', category: 'armor', rarity: 'common', stats: { defenseReduction: 0.18 }, cost: 200, currency: 'minerals', description: '200M | 18% Damage Reduction' },
-  { id: 'ar_iron', name: 'Iron armor', category: 'armor', rarity: 'common', stats: { defenseReduction: 0.27 }, cost: 400, currency: 'minerals', description: '400M | 27% Damage Reduction' },
-  { id: 'ar_steel', name: 'Steel armor', category: 'armor', rarity: 'rare', stats: { defenseReduction: 0.36 }, cost: 800, currency: 'minerals', description: '800M | 36% Damage Reduction' },
-  { id: 'ar_silver', name: 'Silver armor', category: 'armor', rarity: 'rare', stats: { defenseReduction: 0.45 }, cost: 1600, currency: 'minerals', description: '1600M | 45% Damage Reduction' },
-  { id: 'ar_gold', name: 'Gold armor', category: 'armor', rarity: 'epic', stats: { defenseReduction: 0.54 }, cost: 3200, currency: 'minerals', description: '3200M | 54% Damage Reduction' },
-  { id: 'ar_plat', name: 'Platinum armor', category: 'armor', rarity: 'epic', stats: { defenseReduction: 0.63 }, cost: 6400, currency: 'minerals', description: '6400M | 63% Damage Reduction' },
-  { id: 'ar_titanium', name: 'Titanium armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.72 }, cost: 12800, currency: 'minerals', description: '12800M | 72% Damage Reduction' },
-  { id: 'ar_chromite', name: 'Chromite armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.92 }, cost: 1, currency: 'vespene', description: '1V | 92% Damage Reduction' },
-  { id: 'ar_pyrite', name: 'Pyrite armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.96 }, cost: 2, currency: 'vespene', description: '2V | 96% Damage Reduction' },
-  { id: 'ar_tungsten', name: 'Tungsten armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.98 }, cost: 8, currency: 'vespene', description: '8V | 98% Damage Reduction' },
-  { id: 'ar_nano', name: 'Nanocrystalline Diamond armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.99 }, cost: 32, currency: 'vespene', description: '32V | 99% Damage Reduction' },
-  { id: 'ar_uranium', name: 'Uranium armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.995 }, cost: 160, currency: 'vespene', description: '160V | 99.5% Damage Reduction' },
-  { id: 'ar_rubidium', name: 'Rubidium armor', category: 'armor', rarity: 'legendary', stats: { defenseReduction: 0.9975 }, cost: 512, currency: 'vespene', description: '512V | 99.75% Damage Reduction' },
-
-  // --- AMULETS (Health) ---
-  { id: 'am_zircon', name: 'Zircon Amulet', category: 'amulet', rarity: 'common', stats: { hp: 250 }, cost: 100, currency: 'minerals', description: '100M | +250 Health' },
-  { id: 'am_amethyst', name: 'Amethyst Amulet', category: 'amulet', rarity: 'common', stats: { hp: 500 }, cost: 200, currency: 'minerals', description: '200M | +500 Health' },
-  { id: 'am_topaz', name: 'Topaz Amulet', category: 'amulet', rarity: 'common', stats: { hp: 1000 }, cost: 400, currency: 'minerals', description: '400M | +1000 Health' },
-  { id: 'am_spinel', name: 'Spinel Amulet', category: 'amulet', rarity: 'rare', stats: { hp: 2000 }, cost: 800, currency: 'minerals', description: '800M | +2000 Health' },
-  { id: 'am_sapphire', name: 'Sapphire Amulet', category: 'amulet', rarity: 'rare', stats: { hp: 4000 }, cost: 1600, currency: 'minerals', description: '1600M | +4000 Health' },
-  { id: 'am_emerald', name: 'Emerald Amulet', category: 'amulet', rarity: 'epic', stats: { hp: 8000 }, cost: 3200, currency: 'minerals', description: '3200M | +8000 Health' },
-  { id: 'am_ruby', name: 'Ruby Amulet', category: 'amulet', rarity: 'epic', stats: { hp: 16000 }, cost: 6400, currency: 'minerals', description: '6400M | +16000 Health' },
-  { id: 'am_corundum', name: 'Corundum Amulet', category: 'amulet', rarity: 'legendary', stats: { hp: 32000 }, cost: 12800, currency: 'minerals', description: '12800M | +32000 Health' },
-  { id: 'am_titanium', name: 'Titanium Amulet', category: 'amulet', rarity: 'legendary', stats: { hp: 160000 }, cost: 1, currency: 'vespene', description: '1V | +160000 Health' },
-  { id: 'am_obsidian', name: 'Obsidian Amulet', category: 'amulet', rarity: 'legendary', stats: { hp: 320000 }, cost: 2, currency: 'vespene', description: '2V | +320000 Health' },
-  { id: 'am_diamond', name: 'Diamond Amulet', category: 'amulet', rarity: 'legendary', stats: { hp: 471000 }, cost: 8, currency: 'vespene', description: '8V | +471000 Health' },
-
-  // --- POTIONS / TRINKETS (Health Regeneration) ---
-  { id: 'p_minor', name: 'Minor regeneration potion', category: 'trinket', rarity: 'common', stats: { hpRegen: 6 }, cost: 100, currency: 'minerals', description: '100M | +6/s HP Regen' },
-  { id: 'p_lesser', name: 'Lesser regeneration potion', category: 'trinket', rarity: 'common', stats: { hpRegen: 12 }, cost: 200, currency: 'minerals', description: '200M | +12/s HP Regen' },
-  { id: 'p_common', name: 'Common regeneration potion', category: 'trinket', rarity: 'common', stats: { hpRegen: 24 }, cost: 400, currency: 'minerals', description: '400M | +24/s HP Regen' },
-  { id: 'p_greater', name: 'Greater regeneration potion', category: 'trinket', rarity: 'rare', stats: { hpRegen: 48 }, cost: 800, currency: 'minerals', description: '800M | +48/s HP Regen' },
-  { id: 'p_superior', name: 'Superior regeneration potion', category: 'trinket', rarity: 'rare', stats: { hpRegen: 96 }, cost: 1600, currency: 'minerals', description: '1600M | +96/s HP Regen' },
-  { id: 'p_major', name: 'Major regeneration potion', category: 'trinket', rarity: 'epic', stats: { hpRegen: 192 }, cost: 3200, currency: 'minerals', description: '3200M | +192/s HP Regen' },
-  { id: 'p_ultra', name: 'Ultra regeneration potion', category: 'trinket', rarity: 'epic', stats: { hpRegen: 384 }, cost: 6400, currency: 'minerals', description: '6400M | +384/s HP Regen' },
-  { id: 'p_extreme', name: 'Extreme regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 768 }, cost: 12800, currency: 'minerals', description: '12800M | +768/s HP Regen' },
-  { id: 'p_mega', name: 'Mega regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 3840 }, cost: 1, currency: 'vespene', description: '1V | +3840/s HP Regen' },
-  { id: 'p_eternal', name: 'Eternal regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 7680 }, cost: 2, currency: 'vespene', description: '2V | +7680/s HP Regen' },
-  { id: 'p_ultimate', name: 'Ultimate regeneration potion', category: 'trinket', rarity: 'legendary', stats: { hpRegen: 20480 }, cost: 8, currency: 'vespene', description: '8V | +20480/s HP Regen' },
-
-  // --- FINAL ITEMS ---
-  { id: 'b_final', name: 'Final blade', category: 'final', rarity: 'legendary', stats: { damage: 819200, attackSpeed: 40.0 }, cost: 1596, currency: 'vespene', description: '1596V | +819,200 Damage & +4000% Attack Speed (Final Tier)' },
-  { id: 'p_final', name: 'Final regeneration', category: 'final', rarity: 'legendary', stats: { hpRegen: 2048000 }, cost: 512, currency: 'vespene', description: '512V | +2,048,000/s HP Regen (Final Tier)' },
-];
+const availableShopItems: Item[] = AVAILABLE_SHOP_ITEMS;
 
 // Shop catalog scaled to the current D-rank shop cycle (x1.5 stats & costs per cycle)
-const shopItems = computed<Item[]>(() =>
-  availableShopItems.map(item => scaleShopItem(item, getShopMultiplier(probeBase.value.shopCycle), getShopRankName(probeBase.value.shopCycle)))
-);
+// Bargain Hunter reduces all shop prices; Void Warden additionally discounts vespene items
+const shopItems = computed<Item[]>(() => {
+  const discount = 1 - (skillTree.bonuses.value.shopPriceReduction || 0);
+  const vespeneDiscount = 1 - (skillTree.bonuses.value.vespeneItemDiscount || 0);
+  return availableShopItems.map(item => {
+    const scaled = scaleShopItem(item, getShopMultiplier(probeBase.value.shopCycle), getShopRankName(probeBase.value.shopCycle));
+    let cost = big(scaled.cost);
+    if (discount < 1) {
+      cost = cost.mul(discount);
+    }
+    if (scaled.currency === 'vespene' && vespeneDiscount < 1) {
+      cost = cost.mul(vespeneDiscount);
+    }
+    if (cost.lt(scaled.cost)) {
+      return { ...scaled, cost: cost.floor() };
+    }
+    return scaled;
+  });
+});
 
 // Upgrade the shop to D-rank items (free, once per completed Final Wall cycle)
 function handleShopUpgrade() {
@@ -258,30 +249,23 @@ function handleShopUpgrade() {
 const devActions = {
   grantVespene() {
     zealotState.value.infiniteVespene = true;
-    zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(500_000_000);
+    addVespene(500_000_000);
     if (autosaveEnabled.value) autoSave();
     showSaveNotification('∞ Vespene gas granted (DEV)! Infinite!');
+  },
+  grantXp(amount: number) {
+    skillTree.grantXp(amount);
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification(`${amount} Zealot XP granted (DEV)!`);
   },
   hardReset() {
     const minerals = zealotState.value.minerals;
     const vespeneGas = zealotState.value.vespeneGas;
-    zealotState.value = {
-      hp: big(100),
-      maxHp: big(100),
-      baseAttack: big(15),
-      baseAttackSpeed: 1.0,
-      baseDefense: 5,
-      baseHpRegen: big(1.0),
+    zealotState.value = createDefaultZealotState({
       minerals,
       vespeneGas,
       infiniteVespene: zealotState.value.infiniteVespene,
-      emergencyTeleports: 2,
-      deaths: 0,
-      isImmobilized: false,
-      wallsKilled: 0,
-      damageDone: big(0),
-      highestAverageDps: big(0),
-    };
+    });
     probeBase.value = createProbeBase(0, null);
     stopCombat(zealotState.value);
     if (autosaveEnabled.value) autoSave();
@@ -293,26 +277,77 @@ const devActions = {
     if (autosaveEnabled.value) autoSave();
     showSaveNotification(`Wall + shop upgraded to cycle ${cycle + 1} (${getShopMultiplierLabel(cycle)})!`);
   },
+  switchScreenType() {
+    const next = toggleDevScreenType();
+    showSaveNotification(`DEV: Switched to ${next.toUpperCase()} view`);
+    return next;
+  },
 };
 
-// Attack execution logic
+// Attack execution logic — applies combo multiplier and critical hits
 function performAttack() {
   if (zealotState.value.isImmobilized) return;
-  const dmg = attackPower.value;
+
+  let dmg = attackPower.value;
+  const comboTimes = big(combo.comboMultiplier.value);
+  dmg = dmg.mul(comboTimes);
+
+  // Critical hit chance from skill tree
+  const critChance = skillTree.bonuses.value.critChance;
+  const isCrit = Math.random() < critChance;
+  if (isCrit) {
+    dmg = dmg.mul(skillTree.bonuses.value.critMultiplier);
+  }
+
   zealotState.value.damageDone = zealotState.value.damageDone.add(dmg);
-  gainMinerals(dmg.floor());
+  const mineralsGained = dmg;
+  gainMinerals(mineralsGained.floor());
+  // Vespene Siphon: a fraction of every minerals gain is auto-harvested as vespene
+  const siphon = skillTree.bonuses.value.autoVespenePercent;
+  if (siphon > 0) {
+    addVespene(mineralsGained.mul(siphon).floor());
+  }
   audio.playSfx('wallHit');
+  // Capture wall max HP so kill rewards (bounty % of wall HP) use the wall that was actually destroyed
+  const wallMaxHp = probeBase.value.wall.maxHp;
   const res = damageWall(dmg, zealotState.value);
   if (res.destroyed) {
     audio.playSfx('wallDestroy');
-    if (autosaveEnabled.value) autoSave();
+    combo.registerWallDestroyed();
+    handleWallDestroyed(wallMaxHp);
   }
+}
+
+// Shared kill-reward logic (XP + kill bounty + undying reset) — runs for both attack kills and reflect kills
+function handleWallDestroyed(wallMaxHpAtKill: ReturnType<typeof big>) {
+  // XP gain on probe/wall destruction
+  const wallLevel = probeBase.value.wall?.level || 0;
+  const wallXp = 10 + wallLevel;
+  const probeXp = probeBase.value.isRare ? 50 : 25;
+  const bonusXp = Math.min(50, Math.floor(probeBase.value.rankIndex / 3));
+  skillTree.grantXp(wallXp + probeXp + bonusXp);
+  // Bounty Contract / Khaydarin Engine: minerals = % of the destroyed wall's max HP
+  const bounty = skillTree.bonuses.value.killBountyPercent;
+  if (bounty > 0) {
+    gainMinerals(big(wallMaxHpAtKill).mul(bounty).floor());
+  }
+  // Vespene Tithe: a share of the destroyed wall's max HP is harvested directly as vespene
+  const tithe = skillTree.bonuses.value.vespeneBountyPercent;
+  if (tithe > 0) {
+    addVespene(big(wallMaxHpAtKill).mul(tithe).floor());
+  }
+  // Reset Undying for the new probe fight
+  if (zealotState.value.undyingUsedThisFight) {
+    zealotState.value.undyingUsedThisFight = false;
+  }
+  if (autosaveEnabled.value) autoSave();
 }
 
 // User manual attack action against probe base (records click for dynamic attack speed)
 function handleAttack() {
   if (zealotState.value.isImmobilized) return;
   recordClick();
+  combo.registerClick();
   audio.playSfx('attack');
   performAttack();
 }
@@ -324,7 +359,7 @@ function buyItem(item: Item, slotIndex: number) {
     const existing = unequipItem(slotIndex);
     if (existing) {
       if (existing.currency === 'vespene') {
-        zealotState.value.vespeneGas = zealotState.value.vespeneGas.add(existing.cost);
+        addVespene(existing.cost);
       } else {
         gainMinerals(existing.cost);
       }
@@ -343,6 +378,27 @@ function handleConvertMaxVespene() {
   }
 }
 
+// Unlock a skill tree node
+function handleUnlockSkill(nodeId: string) {
+  const node = SKILL_NODES.find(n => n.id === nodeId);
+  if (!node) return;
+  if (skillTree.unlockNode(nodeId)) {
+    audio.playSfx('shopBuy');
+    if (autosaveEnabled.value) autoSave();
+    showSaveNotification(`Skill unlocked: ${node.name}!`);
+  }
+}
+
+// Next cost for the XP bar (lowest available cost across branches)
+const nextSkillCost = computed(() => {
+  let lowest: number | null = null;
+  (['vengeance', 'resilience', 'wealth'] as const).forEach(branch => {
+    const cost = skillTree.getNextCost(branch);
+    if (cost !== null && (lowest === null || cost < lowest)) lowest = cost;
+  });
+  return lowest;
+});
+
 // Game tick loop (Regen, Turret Damage, Auto-Save, Auto-Attack)
 let fastTickInterval: number | null = null;
 let slowTickInterval: number | null = null;
@@ -359,6 +415,7 @@ function startGameLoops() {
       const interval = 1000 / Math.max(0.1, attackSpeed.value);
       if (now - lastAtkTime >= interval) {
         performAttack();
+        combo.registerAutoAttackClick();
         lastAtkTime = now;
       }
     }
@@ -391,23 +448,53 @@ function startGameLoops() {
       const isTrainingBlocked = probeBase.value.rareType === 'trainingProbe' && (probeBase.value.trainingState === 'waiting15' || probeBase.value.trainingState === 'castingVoid');
       if (totalTurretDps.value.gt(0) && !isTrainingBlocked) {
         const damageThisTick = totalTurretDps.value.div(10);
-        takeDamage(damageThisTick);
-        if (damageThisTick.gte(1)) {
-          audio.playSfx('turretHit');
-        }
-        if (zealotState.value.hp.lte(0)) {
-          const teleported = useEmergencyTeleport();
-          if (teleported) {
+        const reducedDamage = computeReducedDamage(damageThisTick);
+        let tookHit = false;
+        // Undying skill: survive a fatal blow once per fight at 1 HP, then 3s full damage immunity
+        if (zealotState.value.damageImmunityTimer <= 0) {
+          if (
+            skillTree.bonuses.value.undyingEnabled &&
+            !zealotState.value.undyingUsedThisFight &&
+            zealotState.value.hp.lte(reducedDamage)
+          ) {
+            zealotState.value.hp = big(1);
+            zealotState.value.undyingUsedThisFight = true;
+            zealotState.value.damageImmunityTimer = 3;
             audio.playSfx('teleport');
-            stopCombat(zealotState.value);
-            currentView.value = 'shop';
-            if (autosaveEnabled.value) autoSave();
-            alert(`⚠️ EMERGENCY TELEPORT ACTIVATED! (${zealotState.value.emergencyTeleports} remaining) You warped back to the Zealot Shop!`);
           } else {
-            audio.playSfx('death');
-            stopCombat(zealotState.value);
-            alert('💀 ZEALOT HAS FALLEN IN BATTLE! No emergency teleports remaining. Hard resetting session...');
-            handleReset();
+            takeDamage(damageThisTick);
+            tookHit = true;
+          }
+          if (damageThisTick.gte(1)) {
+            audio.playSfx('turretHit');
+            combo.registerDamageTaken();
+          }
+          if (zealotState.value.hp.lte(0)) {
+            const teleported = useEmergencyTeleport();
+            if (teleported) {
+              audio.playSfx('teleport');
+              stopCombat(zealotState.value);
+              currentView.value = 'shop';
+              if (autosaveEnabled.value) autoSave();
+              showSaveNotification(`⚠️ EMERGENCY TELEPORT ACTIVATED! (${zealotState.value.emergencyTeleports} remaining) You warped back to the Zealot Shop!`);
+            } else {
+              audio.playSfx('death');
+              stopCombat(zealotState.value);
+              showSaveNotification('💀 ZEALOT HAS FALLEN IN BATTLE! No emergency teleports remaining. Hard resetting session...');
+              handleReset();
+            }
+          }
+          // Reflective Aegis: reflect a fraction of damage actually taken back at the wall
+          const thorns = skillTree.bonuses.value.thornsReflect;
+          if (tookHit && thorns > 0) {
+            const reflected = damageThisTick.mul(thorns).floor();
+            if (reflected.gt(0)) {
+              const reflectWallMaxHp = probeBase.value.wall.maxHp;
+              const reflectRes = damageWall(reflected, zealotState.value);
+              if (reflectRes.destroyed) {
+                handleWallDestroyed(reflectWallMaxHp);
+              }
+            }
           }
         }
       }
@@ -416,8 +503,21 @@ function startGameLoops() {
 
   // Slow tick (1000ms) for upgrade timers and normal wall auto-repair
   slowTickInterval = window.setInterval(() => {
+    // Run-based play time counter (1 second per tick)
+    zealotState.value.totalPlayTimeSeconds += 1;
+
     if (probeBase.value.rareType !== 'doubleBaser' && probeBase.value.rareType !== 'tripleBaser') {
       autoRepairWall(false);
+    }
+
+    // Ability immunity timer counts down every second
+    if (zealotState.value.abilityImmunityTimer > 0) {
+      zealotState.value.abilityImmunityTimer -= 1;
+    }
+
+    // Undying damage immunity window counts down every second
+    if (zealotState.value.damageImmunityTimer > 0) {
+      zealotState.value.damageImmunityTimer -= 1;
     }
 
     const upgraded = tickProbeUpgrades(zealotState.value);
@@ -459,13 +559,14 @@ onMounted(() => {
     if (saved.zealot) loadState(saved.zealot);
     if (saved.inventory) loadInventory(saved.inventory);
     if (saved.probeBase) loadCombatState(saved.probeBase);
+    if (saved.skillTree) skillTree.deserialize(saved.skillTree);
   }
 
   // Init audio on first user interaction (browser autoplay policy)
   const initAudioOnce = () => {
     audio.initOnInteraction();
     document.removeEventListener('click', initAudioOnce);
-    document.removeEventListener('keydown', initAudioOnce);
+document.removeEventListener('keydown', initAudioOnce);
   };
   document.addEventListener('click', initAudioOnce, { once: true });
   document.addEventListener('keydown', initAudioOnce, { once: true });
@@ -492,7 +593,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-[100dvh] text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black">
+  <div
+    class="min-h-[100dvh] text-cyan-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black"
+    :class="{ 'dev-mobile-view': devScreenType === 'mobile', 'dev-desktop-view': devScreenType === 'desktop' }"
+  >
     <!-- Solid background layer (Protoss glow) -->
     <div class="fixed inset-0 protoss-bg" style="z-index: 0;"></div>
 
@@ -503,39 +607,42 @@ onUnmounted(() => {
     />
 
     <!-- Content layer -->
-    <div class="relative flex-1 flex flex-col" style="z-index: 10;">
+    <div class="relative flex-1 flex flex-col" style="z-index: 10;" data-dev="content">
 
     <!-- Top Game Header -->
-    <GameHeader 
-      :minerals="zealotState.minerals" 
-      :vespeneGas="zealotState.vespeneGas"
-      :infiniteVespene="zealotState.infiniteVespene"
-      :autosaveEnabled="autosaveEnabled"
-      :musicVolume="audio.musicVolume.value"
-      :sfxVolume="audio.sfxVolume.value"
-      :musicMuted="audio.musicMuted.value"
-      :sfxMuted="audio.sfxMuted.value"
-      :currentTrackName="audio.currentTrackName.value"
-      :currentTrackEmoji="audio.currentTrackEmoji.value"
-      @save="handleOpenSaveModal"
-      @load="handleOpenLoadModal"
-      @reset="handleReset"
-      @toggleAutosave="toggleAutosave"
-      @toggleMusicMute="audio.toggleMusicMute"
-      @toggleSfxMute="audio.toggleSfxMute"
-      @setMusicVolume="audio.setMusicVolume"
-      @setSfxVolume="audio.setSfxVolume"
-      @nextTrack="audio.nextTrack"
-      @openTutorial="handleOpenTutorial"
-    />
+     <GameHeader 
+       :minerals="zealotState.minerals" 
+       :vespeneGas="zealotState.vespeneGas"
+       :infiniteVespene="zealotState.infiniteVespene"
+       :autosaveEnabled="autosaveEnabled"
+       :musicVolume="audio.musicVolume.value"
+       :sfxVolume="audio.sfxVolume.value"
+       :musicMuted="audio.musicMuted.value"
+       :sfxMuted="audio.sfxMuted.value"
+       :currentTrackName="audio.currentTrackName.value"
+       :currentTrackEmoji="audio.currentTrackEmoji.value"
+       :trackPack="audio.trackPack.value"
+       @save="handleOpenSaveModal"
+       @load="handleOpenLoadModal"
+       @reset="handleReset"
+       @toggleAutosave="toggleAutosave"
+       @toggleMusicMute="audio.toggleMusicMute"
+       @toggleSfxMute="audio.toggleSfxMute"
+       @setMusicVolume="audio.setMusicVolume"
+       @setSfxVolume="audio.setSfxVolume"
+       @nextTrack="audio.nextTrack"
+       @setTrackPack="audio.setTrackPack"
+       @openTutorial="handleOpenTutorial"
+     />
 
     <!-- Sticky View Switcher (BATTLE / SHOP) -->
     <nav class="sticky top-0 z-40 bg-gray-950/95 backdrop-blur-md border-b border-cyan-800/60 shadow-lg">
-      <div class="max-w-7xl mx-auto flex gap-1 p-1.5 px-3 sm:px-6">
+      <div class="max-w-7xl mx-auto flex justify-center gap-1 p-1.5 px-3 sm:px-6">
         <button
           @click="currentView = 'battle'"
           class="flex-1 sm:flex-none sm:px-6 py-2.5 sm:py-2 rounded-lg text-xs font-bold transition-all"
           :class="currentView === 'battle' ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30' : 'text-gray-400 hover:text-gray-200'"
+          data-dev="nav-battle"
         >
           ⚔️ BATTLE AREA
         </button>
@@ -543,6 +650,7 @@ onUnmounted(() => {
           @click="currentView = 'shop'"
           class="flex-1 sm:flex-none sm:px-6 py-2.5 sm:py-2 rounded-lg text-xs font-bold transition-all"
           :class="currentView === 'shop' ? 'bg-amber-500 text-black font-extrabold ring-2 ring-amber-300 shadow-md scale-105' : 'text-gray-400 hover:text-gray-200'"
+          data-dev="nav-shop"
         >
           🏛️ ZEALOT SHOP
         </button>
@@ -550,15 +658,19 @@ onUnmounted(() => {
     </nav>
 
     <!-- Main Content Layout: mobile = Battle (primary) > Stats > Equipment; lg = Stats | Battle | Equipment -->
-    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start">
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-start" data-dev="layout-main">
 
       <!-- Primary Column: Battle Area or Shop Base view (first on mobile) -->
-      <div class="order-1 lg:order-2 lg:col-span-1">
+      <div class="order-1 lg:order-2 lg:col-span-1" data-dev="layout-battle">
         <div v-if="currentView === 'battle'">
           <BattleArea 
             :probeBase="probeBase"
             :attackPower="attackPower"
             :isImmobilized="zealotState.isImmobilized"
+            :combo-count="combo.comboCount.value"
+            :combo-max="combo.comboMax.value"
+            :combo-multiplier="combo.comboMultiplier.value"
+            :ability-immunity-seconds="zealotState.abilityImmunityTimer"
             @attack="handleAttack"
           />
         </div>
@@ -578,7 +690,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Left Column (desktop): Zealot Stats -->
-      <div class="order-2 lg:order-1 lg:col-span-1 space-y-4 sm:space-y-6">
+      <div class="order-2 lg:order-1 lg:col-span-1 space-y-4 sm:space-y-6" data-dev="layout-stats">
         <ZealotStatsComponent 
           :zealot="zealotState"
           :maxHp="maxHp"
@@ -588,15 +700,40 @@ onUnmounted(() => {
           :defense="defense"
           :hpRegen="hpRegen"
           :equipmentStats="totalEquipmentStats"
+          :bonuses="skillTree.bonuses.value"
         />
+
+        <div class="bg-gray-900 border border-cyan-500/40 rounded-lg p-3">
+          <button
+            @click="showSkillTreeModal = true"
+            class="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold px-4 py-2.5 rounded-lg shadow-lg shadow-amber-900/30 transition-all text-sm tracking-wider flex items-center justify-center gap-2"
+          >
+            ⚡ OPEN SKILL TREE
+          </button>
+          <ZealotXpBar
+            :xp="skillTree.totalXp.value"
+            :spent-xp="skillTree.state.value.spentXp"
+            :next-cost="nextSkillCost"
+          />
+        </div>
       </div>
 
       <!-- Right Column (desktop): Equipment Grid (6 Flexible Slots) -->
-      <div class="order-3 lg:order-3 lg:col-span-1">
+      <div class="order-3 lg:order-3 lg:col-span-1" data-dev="layout-equipment">
         <InventoryGrid :slots="slots" @unequip="handleUnequip" />
       </div>
 
     </main>
+
+    <!-- Skill Tree Modal Overlay -->
+    <SkillTreeModal
+      v-if="showSkillTreeModal"
+      :unlocked-nodes="skillTree.state.value.unlockedNodes"
+      :available-xp="skillTree.availableXp.value"
+      :total-xp="skillTree.totalXp.value"
+      @unlock="handleUnlockSkill"
+      @close="showSkillTreeModal = false"
+    />
 
     <!-- Shop Modal Overlay -->
     <ShopModal 
@@ -620,6 +757,8 @@ onUnmounted(() => {
       v-if="showSaveModal"
       :slotMetadata="slotMetadata"
       @saveSlot="handleSaveSlot"
+      @deleteSlot="handleDeleteSlot"
+      @deleteAllSlots="handleDeleteAllSlots"
       @close="showSaveModal = false"
     />
 
@@ -629,6 +768,8 @@ onUnmounted(() => {
       :slotMetadata="slotMetadata"
       :mostRecentSlot="mostRecentSlot"
       @loadSlot="handleLoadSlot"
+      @deleteSlot="handleDeleteSlot"
+      @deleteAllSlots="handleDeleteAllSlots"
       @close="showLoadModal = false"
     />
 

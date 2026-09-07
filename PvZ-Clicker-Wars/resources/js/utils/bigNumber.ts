@@ -23,12 +23,6 @@ export function toNum(value: BigNum | number): number {
   return d.toNumber();
 }
 
-/** Serialize a value for JSON persistence: Decimals become strings, numbers stay numbers. */
-export function serBig(value: BigNum | number): string | number {
-  if (typeof value === 'number') return value;
-  return new Decimal(value).toString();
-}
-
 /** Deserialize a possibly-missing/string/number field into a Decimal. */
 export function desBig(value: unknown, fallback: BigSource = 0): BigNum {
   if (typeof value === 'number') return new Decimal(value);
@@ -41,9 +35,4 @@ export function desBig(value: unknown, fallback: BigSource = 0): BigNum {
   }
   if (value instanceof Decimal) return new Decimal(value);
   return new Decimal(fallback);
-}
-
-/** Decimal floor for positive use cases (returns a Decimal). */
-export function bigFloor(value: BigNum): BigNum {
-  return value.floor();
 }

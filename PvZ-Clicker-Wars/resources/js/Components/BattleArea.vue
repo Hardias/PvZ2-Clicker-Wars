@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import Decimal from 'break_eternity.js';
 import { ProbeBase } from '../types/ProbeBase';
 import { formatNumber } from '../utils/format';
 import { getRankName, isSsRank, ssLevel, getRankTier, TierId } from '../utils/ranks';
 import { BigNum } from '../utils/bigNumber';
+import ComboCounter from './ComboCounter.vue';
+import AbilityImmunityIndicator from './AbilityImmunityIndicator.vue';
 
 interface Props {
   probeBase: ProbeBase;
   attackPower: BigNum;
   isImmobilized?: boolean;
+  comboCount?: number;
+  comboMax?: number;
+  comboMultiplier?: number;
+  abilityImmunitySeconds?: number;
 }
 
 const props = defineProps<Props>();
@@ -271,7 +276,17 @@ function formatTimer(value: number): string {
           <span>🛡️ No Turrets ({{ probeBase.rareType === 'trainingProbe' ? 'Training Unit' : 'Pather Unit' }})</span>
         </div>
 
-        <div class="mt-4 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
+        <!-- Combo Counter + Ability Immunity Status -->
+        <div class="w-full space-y-2 mb-2">
+          <ComboCounter
+            :combo-count="props.comboCount ?? 0"
+            :combo-max="props.comboMax ?? 50"
+            :multiplier="props.comboMultiplier ?? 1.0"
+          />
+          <AbilityImmunityIndicator :seconds-remaining="props.abilityImmunitySeconds ?? 0" />
+        </div>
+
+        <div class="mt-2 text-xs text-cyan-400/80 italic animate-bounce" :class="isImmobilized ? 'text-purple-400' : ''">
           {{ isImmobilized ? '🛑 ZEALOT CANNOT ATTACK WHILE IMMOBILIZED! 🛑' : '⚡ CLICK HERE TO ATTACK THE WALL ⚡' }}
         </div>
       </div>
