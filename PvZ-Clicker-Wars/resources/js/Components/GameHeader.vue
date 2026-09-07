@@ -288,6 +288,20 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
             <div class="bg-gray-950 border border-purple-500/40 rounded-xl p-3">
               <div class="mb-2.5">
                 <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Music Pack</span>
+                </div>
+                <select
+                  :value="trackPack"
+                  @change="emit('setTrackPack', ($event.target as HTMLSelectElement).value as 'big_pickle' | 'gemini')"
+                  class="w-full bg-gray-950 text-purple-200 px-2 py-1.5 rounded text-xs font-bold border border-purple-500/50 focus:outline-none focus:border-purple-400 cursor-pointer"
+                >
+                  <option value="big_pickle">Big Pickle</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
+
+              <div class="mb-2.5">
+                <div class="flex items-center justify-between mb-1">
                   <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Track</span>
                   <span class="text-[10px] font-bold text-purple-200">{{ currentTrackEmoji }} {{ currentTrackName }}</span>
                 </div>
