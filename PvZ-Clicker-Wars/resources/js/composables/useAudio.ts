@@ -1,4 +1,5 @@
 import { ref, computed, onUnmounted } from 'vue';
+import { buildSectionFrames } from '../utils/trackVisuals';
 
 type SfxName =
   | 'attack'
@@ -41,7 +42,16 @@ export function useAudio() {
   const sfxVolume = ref(loadNumber('pvz2_sfx_volume', 0.5));
   const musicMuted = ref(loadBool('pvz2_music_muted', false));
   const sfxMuted = ref(loadBool('pvz2_sfx_muted', false));
+  const visualizerEnabled = ref(loadBool('pvz2_visualizer_enabled', true));
   const isPlaying = ref(false);
+
+  // Reactive playhead exposed to the visualizer (audio engine is the source of truth).
+  const visualSection = ref(0);
+  const visualStep = ref(0);
+  // A monotonic bump so the visualizer can react to each scheduled 8th-note.
+  const visualTick = ref(0);
+  // "Prerender" cache: frames per section, keyed by `${trackId}:${sectionIdx}`.
+  const sectionFramesCache = new Map<string, Float32Array[]>();
 
   let ctx: AudioContext | null = null;
   let nodes: AudioNodes | null = null;
@@ -1121,6 +1131,8 @@ export function useAudio() {
     if (trackIndex.value >= active.length) {
       trackIndex.value = 0;
     }
+    visualSection.value = 0;
+    visualStep.value = 0;
     if (wasPlaying) startMusic();
   }
 
@@ -1140,6 +1152,11 @@ export function useAudio() {
     const dest = songDest;
     const step = currentStep % 16;
     const time = audio.currentTime + 0.05;
+
+    // Publish the playhead for the prerendered visualizer.
+    visualSection.value = currentSectionIdx;
+    visualStep.value = step;
+    visualTick.value++;
 
     const track = TRACKS.value[trackIndex.value];
     const section = track.sections[currentSectionIdx];
@@ -1269,6 +1286,8 @@ export function useAudio() {
     if (wasPlaying) stopMusic();
     trackIndex.value = (trackIndex.value + 1) % TRACKS.value.length;
     localStorage.setItem('pvz2_music_track', String(trackIndex.value));
+    visualSection.value = 0;
+    visualStep.value = 0;
     if (wasPlaying) startMusic();
   }
 
@@ -1638,9 +1657,44 @@ export function useAudio() {
   });
 
   function getFrequencyData(): Uint8Array | null {
-    if (!nodes || musicMuted.value) return null;
+    if (!nodes || musicMuted.value || !visualizerEnabled.value) return null;
     nodes.analyser.getByteFrequencyData(nodes.freqData);
     return nodes.freqData;
+  }
+
+  function toggleVisualizer() {
+    visualizerEnabled.value = !visualizerEnabled.value;
+    localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));
+  }
+
+  function setVisualizer(enabled: boolean) {
+    visualizerEnabled.value = enabled;
+    localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));
+  }
+
+  /** Return the prerendered frames for a given section of the active track. */
+  function getSectionFrames(sectionIdx: number): Float32Array[] | null {
+    if (!visualizerEnabled.value) return null;
+    const track = TRACKS.value[trackIndex.value];
+    const section = track.sections[sectionIdx];
+    if (!section) return null;
+
+    const key = `${track.id}:${sectionIdx}`;
+    let frames = sectionFramesCache.get(key);
+    if (!frames) {
+      frames = buildSectionFrames(section, snarePattern, hhPattern);
+      sectionFramesCache.set(key, frames);
+    }
+    return frames;
+  }
+
+  /** Milliseconds per 8th-note step for the active track (matches the sequencer). */
+  function getStepDur(): number {
+    return 60 / TRACKS.value[trackIndex.value].bpm / 2 * 1000;
+  }
+
+  function clearSectionFramesCache() {
+    sectionFramesCache.clear();
   }
 
   return {
@@ -1648,7 +1702,11 @@ export function useAudio() {
     sfxVolume,
     musicMuted,
     sfxMuted,
+    visualizerEnabled,
     isPlaying,
+    visualSection,
+    visualStep,
+    visualTick,
     currentTrackName,
     currentTrackEmoji,
     trackPack,
@@ -1661,6 +1719,11 @@ export function useAudio() {
     setSfxVolume,
     toggleMusicMute,
     toggleSfxMute,
+    toggleVisualizer,
+    setVisualizer,
+    getSectionFrames,
+    getStepDur,
+    clearSectionFramesCache,
     initOnInteraction,
     getFrequencyData,
   };

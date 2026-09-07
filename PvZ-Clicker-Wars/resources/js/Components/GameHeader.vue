@@ -12,6 +12,7 @@ interface Props {
   sfxVolume: number;
   musicMuted: boolean;
   sfxMuted: boolean;
+  visualizerEnabled: boolean;
   currentTrackName: string;
   currentTrackEmoji: string;
   trackPack: 'big_pickle' | 'gemini';
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   (e: 'setSfxVolume', value: number): void;
   (e: 'nextTrack'): void;
   (e: 'setTrackPack', pack: 'big_pickle' | 'gemini'): void;
+  (e: 'toggleVisualizer'): void;
   (e: 'openTutorial'): void;
 }>();
 
@@ -110,6 +112,21 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
               v-if="showAudioPanel"
               class="absolute right-0 top-full mt-2 bg-gray-900 border border-purple-500/40 rounded-lg p-4 shadow-2xl shadow-purple-900/50 z-50 w-64"
             >
+              <!-- Visualizer toggle -->
+              <div class="mb-3">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Background Equalizer</span>
+                </div>
+                <button
+                  @click="emit('toggleVisualizer')"
+                  class="w-full px-3 py-1.5 rounded text-xs font-bold border transition-all flex items-center justify-center gap-2"
+                  :class="visualizerEnabled ? 'bg-green-950/90 text-green-200 border-green-400' : 'bg-gray-900 text-gray-400 border-gray-700'"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full" :class="visualizerEnabled ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-gray-500'"></span>
+                  Equalizer: {{ visualizerEnabled ? 'ON' : 'OFF' }}
+                </button>
+              </div>
+
               <!-- Music Pack Selector -->
               <div class="mb-3">
                 <div class="flex items-center justify-between mb-1">
@@ -286,6 +303,20 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
 
             <!-- Audio section -->
             <div class="bg-gray-950 border border-purple-500/40 rounded-xl p-3">
+              <div class="mb-2.5">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Background Equalizer</span>
+                </div>
+                <button
+                  @click="emit('toggleVisualizer')"
+                  class="w-full px-3 py-2 rounded text-xs font-bold border transition-all flex items-center justify-center gap-2"
+                  :class="visualizerEnabled ? 'bg-green-950/90 text-green-200 border-green-400' : 'bg-gray-900 text-gray-400 border-gray-700'"
+                >
+                  <span class="w-2.5 h-2.5 rounded-full" :class="visualizerEnabled ? 'bg-green-400 shadow-[0_0_8px_#4ade80]' : 'bg-gray-500'"></span>
+                  Equalizer: {{ visualizerEnabled ? 'ON' : 'OFF' }}
+                </button>
+              </div>
+
               <div class="mb-2.5">
                 <div class="flex items-center justify-between mb-1">
                   <span class="text-[10px] font-bold text-purple-300 uppercase tracking-wider">Music Pack</span>

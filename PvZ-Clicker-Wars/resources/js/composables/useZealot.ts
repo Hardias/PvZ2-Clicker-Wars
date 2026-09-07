@@ -1,4 +1,4 @@
-import { ref, computed, Ref } from 'vue';
+import { ref, shallowRef, computed, Ref } from 'vue';
 import Decimal from 'break_eternity.js';
 import { ZealotStats } from '../types/Zealot';
 import { SkillBonuses, DEFAULT_SKILL_BONUSES } from '../types/SkillTree';
@@ -118,8 +118,8 @@ export function useZealot(
     };
   }
 
-  // Reactive zealot state
-  const state = ref<ZealotStats>(loadInitialState());
+  // Reactive zealot state (optimized with shallowRef to eliminate deep proxy overhead on Decimal instances)
+  const state = shallowRef<ZealotStats>(loadInitialState());
 
   // Helper to get current skill bonuses (with fallback to defaults)
   function getBonuses(): SkillBonuses {

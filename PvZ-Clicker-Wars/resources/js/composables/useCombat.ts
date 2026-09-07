@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { ref, shallowRef, computed } from 'vue';
 import Decimal from 'break_eternity.js';
 import { ProbeBase, RareProbeType } from '../types/ProbeBase';
 import { ZealotStats } from '../types/Zealot';
@@ -174,8 +174,8 @@ export function useCombat() {
     };
   }
 
-  // Reactive probe base state
-  const probeBase = ref<ProbeBase>(loadInitialProbeBase());
+  // Reactive probe base state (optimized with shallowRef to eliminate deep proxy overhead on Decimal instances)
+  const probeBase = shallowRef<ProbeBase>(loadInitialProbeBase());
 
   // Total turret DPS active against the zealot during combat (Decimal; includes tier mechanics)
   const totalTurretDps = computed(() => {

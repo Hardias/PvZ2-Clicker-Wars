@@ -602,8 +602,11 @@ onUnmounted(() => {
 
     <!-- Audio Equalizer Visualizer (above background, below content) -->
     <AudioVisualizer
-      :get-frequency-data="audio.getFrequencyData"
-      :active="!audio.musicMuted.value && audio.isPlaying.value"
+      :active="!audio.musicMuted.value && audio.isPlaying.value && audio.visualizerEnabled.value"
+      :get-section-frames="audio.getSectionFrames"
+      :section="audio.visualSection.value"
+      :step="audio.visualStep.value"
+      :tick="audio.visualTick.value"
     />
 
     <!-- Content layer -->
@@ -619,6 +622,7 @@ onUnmounted(() => {
        :sfxVolume="audio.sfxVolume.value"
        :musicMuted="audio.musicMuted.value"
        :sfxMuted="audio.sfxMuted.value"
+       :visualizerEnabled="audio.visualizerEnabled.value"
        :currentTrackName="audio.currentTrackName.value"
        :currentTrackEmoji="audio.currentTrackEmoji.value"
        :trackPack="audio.trackPack.value"
@@ -632,6 +636,7 @@ onUnmounted(() => {
        @setSfxVolume="audio.setSfxVolume"
        @nextTrack="audio.nextTrack"
        @setTrackPack="audio.setTrackPack"
+       @toggleVisualizer="audio.toggleVisualizer"
        @openTutorial="handleOpenTutorial"
      />
 
