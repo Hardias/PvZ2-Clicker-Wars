@@ -4,16 +4,17 @@ import { SkillBranch, SkillNode } from '../types/SkillTree';
 
 interface Props {
   node: SkillNode;
-  unlocked: boolean;
-  canUnlock: boolean;
-  isNextInBranch: boolean;
+  rank: number;
+  canInvest: boolean;
+  locked: boolean;
+  rowReady: boolean;
   selected: boolean;
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'select', nodeId: string): void;
-  (e: 'unlock', nodeId: string): void;
+  (e: 'invest', nodeId: string): void;
 }>();
 
 interface BranchTheme {
@@ -47,51 +48,71 @@ const branchTheme: Record<SkillBranch, BranchTheme> = {
 const theme = computed(() => branchTheme[props.node.branch]);
 
 const boxClass = computed(() => {
-  if (props.unlocked) return `bg-gray-800/90 border-2 ${theme.value.ringUnlocked}`;
-  if (props.canUnlock) return 'bg-gray-800/95 border-2 border-yellow-400 skill-pulse';
-  if (props.isNextInBranch) return 'bg-gray-800/60 border-2 border-amber-600/70';
+  if (props.rank > 0) return `bg-gray-800/90 border-2 ${theme.value.ringUnlocked}`;
+  if (props.canInvest) return 'bg-gray-800/95 border-2 border-yellow-400 skill-pulse';
+  if (props.locked) return 'bg-gray-900/60 border-2 border-red-900/70 opacity-60';
+  if (props.rowReady) return 'bg-gray-800/60 border-2 border-amber-600/70';
   return 'bg-gray-900/70 border-2 border-gray-700 opacity-50';
 });
 
 const nameClass = computed(() =>
-  props.unlocked
-    ? `${theme.value.text}`
-    : props.canUnlock || props.isNextInBranch
+  props.rank > 0
+    ? theme.value.text
+    : props.canInvest || props.rowReady
       ? 'text-gray-200'
       : 'text-gray-500',
 );
+
+const title = computed(() => {
+  if (props.locked) return 'Exclusive choice: the other talent in this of/of pair is already invested.';
+  if (!props.rowReady) return 'Invest in one of its prerequisite talents first.';
+  if (props.canInvest) return `Invest a talent point (${props.rank}/${props.node.maxPoints}).`;
+  if (props.rank > 0) return `${props.node.perPointLabel} — rank ${props.rank}/${props.node.maxPoints}.`;
+  return 'Needs more talent points.';
+});
 </script>
 
 <template>
   <div
-    class="relative flex flex-col items-center justify-center gap-1 rounded-2xl py-3 px-2 cursor-pointer transition-all duration-150 select-none w-full"
-    :class="[boxClass, selected ? 'ring-2 ring-white/90 scale-[1.04] z-10' : '', props.unlocked ? 'shadow-lg ' + theme.glow : '']"
+    class="relative flex flex-col items-center justify-center gap-1 rounded-2xl py-3 px-1.5 cursor-pointer transition-all duration-150 select-none w-[72px] sm:w-[96px] min-h-[92px]"
+    :class="[boxClass, selected ? 'ring-2 ring-white/90 scale-[1.04] z-10' : '', rank > 0 ? 'shadow-lg ' + theme.glow : '']"
+    :title="title"
     @click="emit('select', node.id)"
   >
     <span class="text-2xl leading-none drop-shadow">{{ node.icon }}</span>
     <span class="text-[9px] font-bold uppercase tracking-wider leading-tight text-center" :class="nameClass">{{ node.name }}</span>
 
-    <span v-if="unlocked"
-      class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-emerald-500 border border-emerald-300 text-black text-[10px] font-black flex items-center justify-center shadow">
-      ✓
-    </span>
-    <span v-else-if="!canUnlock && !isNextInBranch"
-      class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-gray-600 flex items-center justify-center text-[9px]">
-      🔒
+    <!-- Rank badge (top-right) -->
+    <span
+      class="absolute -top-2 -right-2 rounded-full px-1.5 py-0.5 text-[10px] font-black border shadow"
+      :class="rank > 0
+        ? 'bg-emerald-500 border-emerald-300 text-black'
+        : 'bg-gray-800 border-gray-600 text-gray-400'"
+    >
+      {{ rank }}/{{ node.maxPoints }}
     </span>
 
-    <span class="absolute -top-2 -left-2 text-[9px] font-mono rounded-full bg-gray-950/90 border px-1.5 py-0.5" :class="props.unlocked ? 'border-emerald-500/60 text-emerald-400' : 'border-gray-700 text-gray-500'">
+    <!-- Exclusive lock badge -->
+    <span
+      v-if="locked"
+      class="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-red-950 border border-red-500 flex items-center justify-center text-[9px]"
+      title="Exclusive choice locked"
+    >
+      🔒
+    </span>
+    <span v-else class="absolute -top-2 -left-2 text-[9px] font-mono rounded-full bg-gray-950/90 border px-1.5 py-0.5" :class="rank > 0 ? 'border-emerald-500/60 text-emerald-400' : 'border-gray-700 text-gray-500'">
       {{ node.row }}
     </span>
 
+    <span v-if="rank > 0" class="mt-1 text-[9px] font-bold text-emerald-300">{{ node.perPointLabel }}</span>
     <button
-      v-if="canUnlock"
+      v-else-if="canInvest"
       class="mt-1 text-[10px] font-black text-black bg-yellow-400 border border-yellow-200 rounded-full px-2.5 py-0.5 transition-colors"
-      @click.stop="emit('unlock', node.id)"
+      @click.stop="emit('invest', node.id)"
     >
-      {{ node.cost }}
+      +1 PT
     </button>
-    <span v-else-if="isNextInBranch" class="mt-1 text-[10px] font-bold text-amber-300">{{ node.cost }}</span>
+    <span v-else class="mt-1 text-[10px] font-bold text-amber-300">{{ node.perPointLabel }}</span>
   </div>
 </template>
 

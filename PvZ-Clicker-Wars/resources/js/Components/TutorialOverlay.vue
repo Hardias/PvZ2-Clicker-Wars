@@ -111,5 +111,3 @@ function previousStep() {
   </div>
 </template>
 
-<style scoped>
-</style>

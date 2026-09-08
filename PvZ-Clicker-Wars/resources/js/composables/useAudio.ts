@@ -3,6 +3,15 @@ import type { AudioNodes, SfxName, TrackDef } from '../audio/types';
 import { BIG_PICKLE_TRACKS, GEMINI_TRACKS, snarePattern, hhPattern } from '../audio/trackCatalog';
 import { playKick, playSnare, playHiHat, playRattle, playBass, playNeuroBass, playStab, playChug, playTom, playCrash } from '../audio/synths';
 import { playSfxSound } from '../audio/sfx';
+import {
+  MUSIC_VOLUME_KEY,
+  SFX_VOLUME_KEY,
+  MUSIC_MUTED_KEY,
+  SFX_MUTED_KEY,
+  VISUALIZER_ENABLED_KEY,
+  MUSIC_TRACK_KEY,
+  TRACK_PACK_KEY,
+} from '../utils/keys';
 
 // Loads a 0..1 volume value from localStorage with a sensible fallback.
 function loadNumber(key: string, fallback: number): number {
@@ -23,11 +32,11 @@ function loadBool(key: string, fallback: boolean): boolean {
 }
 
 export function useAudio() {
-  const musicVolume = ref(loadNumber('pvz2_music_volume', 0.4));
-  const sfxVolume = ref(loadNumber('pvz2_sfx_volume', 0.5));
-  const musicMuted = ref(loadBool('pvz2_music_muted', false));
-  const sfxMuted = ref(loadBool('pvz2_sfx_muted', false));
-  const visualizerEnabled = ref(loadBool('pvz2_visualizer_enabled', true));
+  const musicVolume = ref(loadNumber(MUSIC_VOLUME_KEY, 0.4));
+  const sfxVolume = ref(loadNumber(SFX_VOLUME_KEY, 0.5));
+  const musicMuted = ref(loadBool(MUSIC_MUTED_KEY, false));
+  const sfxMuted = ref(loadBool(SFX_MUTED_KEY, false));
+  const visualizerEnabled = ref(loadBool(VISUALIZER_ENABLED_KEY, true));
   const isPlaying = ref(false);
 
   let ctx: AudioContext | null = null;
@@ -102,7 +111,7 @@ export function useAudio() {
 
   // Restores the saved track index, clamped to the current catalog size.
   function loadTrackIndex(): number {
-    const raw = localStorage.getItem('pvz2_music_track');
+    const raw = localStorage.getItem(MUSIC_TRACK_KEY);
     if (raw !== null) {
       const n = parseInt(raw, 10);
       if (!isNaN(n) && n >= 0 && n < BIG_PICKLE_TRACKS.length) return n;
@@ -112,7 +121,7 @@ export function useAudio() {
 
   // Restores the saved track pack ('big_pickle' | 'gemini').
   function loadTrackPack(): 'big_pickle' | 'gemini' {
-    const raw = localStorage.getItem('pvz2_track_pack');
+    const raw = localStorage.getItem(TRACK_PACK_KEY);
     if (raw === 'gemini' || raw === 'big_pickle') return raw;
     return 'big_pickle';
   }
@@ -132,7 +141,7 @@ export function useAudio() {
     const wasPlaying = isPlaying.value && !musicMuted.value;
     if (wasPlaying) stopMusic();
     trackPack.value = pack;
-    localStorage.setItem('pvz2_track_pack', pack);
+    localStorage.setItem(TRACK_PACK_KEY, pack);
     const active = pack === 'gemini' ? GEMINI_TRACKS : BIG_PICKLE_TRACKS;
     if (trackIndex.value >= active.length) {
       trackIndex.value = 0;
@@ -292,7 +301,7 @@ export function useAudio() {
     const wasPlaying = isPlaying.value && !musicMuted.value;
     if (wasPlaying) stopMusic();
     trackIndex.value = (trackIndex.value + 1) % TRACKS.value.length;
-    localStorage.setItem('pvz2_music_track', String(trackIndex.value));
+    localStorage.setItem(MUSIC_TRACK_KEY, String(trackIndex.value));
     if (wasPlaying) startMusic();
   }
 
@@ -311,7 +320,7 @@ export function useAudio() {
   // Sets + persists the music bus volume, applied live when unmuted.
   function setMusicVolume(v: number) {
     musicVolume.value = Math.max(0, Math.min(1, v));
-    localStorage.setItem('pvz2_music_volume', String(musicVolume.value));
+    localStorage.setItem(MUSIC_VOLUME_KEY, String(musicVolume.value));
     if (nodes && !musicMuted.value) {
       nodes.musicGain.gain.setValueAtTime(musicVolume.value, ctx?.currentTime ?? 0);
     }
@@ -320,7 +329,7 @@ export function useAudio() {
   // Sets + persists the SFX bus volume, applied live when unmuted.
   function setSfxVolume(v: number) {
     sfxVolume.value = Math.max(0, Math.min(1, v));
-    localStorage.setItem('pvz2_sfx_volume', String(sfxVolume.value));
+    localStorage.setItem(SFX_VOLUME_KEY, String(sfxVolume.value));
     if (nodes && !sfxMuted.value) {
       nodes.sfxGain.gain.setValueAtTime(sfxVolume.value, ctx?.currentTime ?? 0);
     }
@@ -330,7 +339,7 @@ export function useAudio() {
   // requires a user gesture.
   function toggleMusicMute() {
     musicMuted.value = !musicMuted.value;
-    localStorage.setItem('pvz2_music_muted', String(musicMuted.value));
+    localStorage.setItem(MUSIC_MUTED_KEY, String(musicMuted.value));
     if (!musicMuted.value) {
       ensureContext();
       ensureNodes();
@@ -348,7 +357,7 @@ export function useAudio() {
   // Mutes/unmutes the SFX bus.
   function toggleSfxMute() {
     sfxMuted.value = !sfxMuted.value;
-    localStorage.setItem('pvz2_sfx_muted', String(sfxMuted.value));
+    localStorage.setItem(SFX_MUTED_KEY, String(sfxMuted.value));
     if (nodes) {
       nodes.sfxGain.gain.setValueAtTime(
         sfxMuted.value ? 0 : sfxVolume.value,
@@ -385,13 +394,13 @@ export function useAudio() {
   // Toggles visualizer rendering and persists the pref.
   function toggleVisualizer() {
     visualizerEnabled.value = !visualizerEnabled.value;
-    localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));
+    localStorage.setItem(VISUALIZER_ENABLED_KEY, String(visualizerEnabled.value));
   }
 
   // Sets visualizer rendering state and persists the pref.
   function setVisualizer(enabled: boolean) {
     visualizerEnabled.value = enabled;
-    localStorage.setItem('pvz2_visualizer_enabled', String(visualizerEnabled.value));
+    localStorage.setItem(VISUALIZER_ENABLED_KEY, String(visualizerEnabled.value));
   }
 
   return {

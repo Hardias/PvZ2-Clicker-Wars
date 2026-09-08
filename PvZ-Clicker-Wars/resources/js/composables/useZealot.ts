@@ -3,6 +3,7 @@ import Decimal from 'break_eternity.js';
 import { ZealotStats } from '../types/Zealot';
 import { SkillBonuses, DEFAULT_SKILL_BONUSES } from '../types/SkillTree';
 import { BigSource, big, desBig, toNum } from '../utils/bigNumber';
+import { SAVE_SLOT_KEY, AUTOSAVE_KEY, LEGACY_ZEALOT_KEY, ZEALOT_DEATHS_KEY } from '../utils/keys';
 import {
   DEFAULT_MAX_HP,
   DEFAULT_BASE_ATTACK,
@@ -95,12 +96,12 @@ export function useZealot(
   function loadInitialState(): ZealotStats {
     let savedDeaths = 0;
     try {
-      const dRaw = localStorage.getItem('pvz2_zealot_deaths');
+      const dRaw = localStorage.getItem(ZEALOT_DEATHS_KEY);
       if (dRaw) savedDeaths = parseInt(dRaw, 10) || 0;
     } catch {}
 
     try {
-      const raw = localStorage.getItem('pvz2_slot_A') || localStorage.getItem('pvz2_slot_B') || localStorage.getItem('pvz2_slot_C') || localStorage.getItem('pvz2_autosave') || localStorage.getItem('pvz2_zealot');
+      const raw = localStorage.getItem(`${SAVE_SLOT_KEY}A`) || localStorage.getItem(`${SAVE_SLOT_KEY}B`) || localStorage.getItem(`${SAVE_SLOT_KEY}C`) || localStorage.getItem(AUTOSAVE_KEY) || localStorage.getItem(LEGACY_ZEALOT_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         const zState = (parsed.zealot || parsed) as Record<string, unknown>;
@@ -262,12 +263,14 @@ export function useZealot(
       state.value.hp = maxHp.value;
       state.value.isImmobilized = false;
       state.value.abilityImmunityTimer = 10;
+      // 5s damage immunity so a fresh hit can never one-shot the zealot right after warping back.
+      state.value.damageImmunityTimer = 5;
       return true;
     }
     // Permadeath (when teleports depleted): increments deaths
     state.value.deaths += 1;
     try {
-      localStorage.setItem('pvz2_zealot_deaths', String(state.value.deaths));
+      localStorage.setItem(ZEALOT_DEATHS_KEY, String(state.value.deaths));
     } catch {}
     return false;
   }

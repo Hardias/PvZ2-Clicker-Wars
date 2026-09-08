@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { ProbeBase } from '../types/ProbeBase';
 import { formatNumber } from '../utils/format';
 import { getRankName, isSsRank, ssLevel, getRankTier, TierId } from '../utils/ranks';
+import { getWallProgressionPosition } from '../utils/combatMath';
+import { defenseUpgradeCost, nextGeneratorUpgrade, generatorRate, totalMiners, minerRate, minerDef, minerCap, mineRate, MINE_LEVELS, MINER_TYPES } from '../utils/economyMath';
 import { BigNum } from '../utils/bigNumber';
 import ComboCounter from './ComboCounter.vue';
 import AbilityImmunityIndicator from './AbilityImmunityIndicator.vue';
@@ -23,6 +25,9 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'attack'): void;
 }>();
+
+// T8d (TIJDELIJK): toggelt de PROBE INSPECT-tabel onder de economie-readout.
+const showProbeInspect = ref(false);
 
 const isSs = computed(() => isSsRank(props.probeBase.rankIndex));
 
@@ -116,10 +121,68 @@ const zealotHpPercentage = computed(() => {
   return Math.min(100, Math.max(0, pct.toNumber()));
 });
 
-const upgradeProgressPercentage = computed(() => {
+// --- T8 probe economy readout (vespene pool replaces the removed upgrade timer) ---
+const wallPos = computed(() => getWallProgressionPosition(props.probeBase.wall.tier, props.probeBase.wall.level));
+const nextWallCost = computed(() => defenseUpgradeCost(wallPos.value));
+const nextGen = computed(() => nextGeneratorUpgrade(props.probeBase.generatorLevel));
+const gasPerSec = computed(() => generatorRate(props.probeBase.generatorLevel));
+
+const wallUpgradeCostLabel = computed(() => {
+  if (props.probeBase.rareType === 'pather') return 'Lv 1 only';
+  const c = nextWallCost.value;
+  return c.minerals > 0 ? `${formatNumber(c.gas)} gas + ${formatNumber(c.minerals)} 💎` : `${formatNumber(c.gas)} gas`;
+});
+
+const wallProgressPct = computed(() => {
   const base = props.probeBase;
-  if (!base.maxUpgradeTime || base.maxUpgradeTime <= 0) return 0;
-  return Math.min(100, Math.max(0, ((base.maxUpgradeTime - base.timeUntilUpgrade) / base.maxUpgradeTime) * 100));
+  const gasRatio = nextWallCost.value.gas > 0 ? base.vespene / nextWallCost.value.gas : 0;
+  const mineralRatio = nextWallCost.value.minerals > 0 ? base.minerals / nextWallCost.value.minerals : 1;
+  return Math.min(100, Math.max(0, Math.min(gasRatio, mineralRatio) * 100));
+});
+
+const nextGeneratorLabel = computed(() => {
+  const def = nextGen.value;
+  if (!def) return `— (max reached)`;
+  const req = def.requirement.kind === 'market' ? 'Market' : def.requirement.kind === 'undergroundMarket' ? 'Underground Market' : `Wall Lv ${def.requirement.kind === 'wall' ? wallPosToLevel(def.requirement.wallPos) : '?'}`;
+  return `Gen Lv ${def.nextLevel}: ${formatNumber(def.costGas)}g${def.costMinerals > 0 ? ` + ${formatNumber(def.costMinerals)}💎` : ''} (${req})`;
+});
+
+const minerIncomePerSec = computed(() => minerRate(props.probeBase.minerCounts));
+
+const mineIncomePerSec = computed(() => mineRate(props.probeBase.mineCounts));
+
+const mineStatus = computed(() => {
+  const b = props.probeBase;
+  if (b.mineBuildLevel !== null) return `⚒️ Building Mine Lv ${b.mineBuildLevel} (${formatTimer(b.mineBuildTimer)})`;
+  const parts = MINE_LEVELS.filter((l) => (b.mineCounts[l] ?? 0) > 0).map((l) => `L${l}×${b.mineCounts[l]}`);
+  return parts.length > 0 ? `⚒️ ${parts.join(' ')}` : '';
+});
+
+const depotStatus = computed(() => {
+  const b = props.probeBase;
+  if (b.depotState === 'building') return `🏗️ Building Depot (${formatTimer(b.depotTimer)})`;
+  if (b.depotState !== 'built') return '—';
+  const total = totalMiners(b.minerCounts);
+  const cap = minerCap(b.repositories);
+  if (b.minerTrainingType !== null) return `⛏️ Depot: ${total}/${cap} miners · training ${minerDef(b.minerTrainingType).name} (${formatTimer(b.minerTrainingTimer)})`;
+  const repo = b.repositories > 0 ? ` · 🏛️${b.repositories}` : '';
+  return `⛏️ Depot: ${total}/${cap} miners · +${formatNumber(minerRate(b.minerCounts))}/s${repo}`;
+});
+
+const marketStatus = computed(() => {
+  const b = props.probeBase;
+  switch (b.marketState) {
+    case 'building':
+      return `🏗️ Building Market (${formatTimer(b.marketTimer)})`;
+    case 'upgrading':
+      return `🏗️ Underground upgrade (${formatTimer(b.marketTimer)})`;
+    case 'selling':
+      return `⚒️ Selling Market (${formatTimer(b.marketTimer)})`;
+    case 'built':
+      return b.undergroundMarketBuilt ? '🏬 Underground Market' : `🏬 Market (${formatNumber(b.mineralPrice)}g/10💎)`;
+    default:
+      return '—';
+  }
 });
 
 const wallCycleName = computed(() => getRankName(props.probeBase.wallCycle || 0));
@@ -163,9 +226,85 @@ const abilityDescription = computed(() => {
     return 'Training Void Prism (Active reflexes)';
   }
   if (props.probeBase.ability === 'chrono') {
-    return '20% faster upgrade timer (10s duration, 40s cooldown)';
+    return 'Chrono Boost (probe activity window, 40s cooldown)';
   }
   return 'Immobilizes Zealot for 4s (45s cooldown)';
+});
+
+function wallPosToLevel(pos: number): string {
+  if (pos < 5) return `Wall Lv ${pos + 1}`;
+  if (pos < 10) return 'Ultra Wall';
+  if (pos < 15) return `Mega Wall ${pos - 9}`;
+  if (pos === 15 || pos === 16) return 'Power Wall';
+  return 'Final Wall';
+}
+
+type InspectRow = { heading?: string; label?: string; value?: string };
+
+// T8d (TIJDELIJK): live probe-state als platte tabel — duidelijkheid boven mooi.
+const inspectRows = computed<InspectRow[]>(() => {
+  const b = props.probeBase;
+  const rows: InspectRow[] = [];
+  const total = totalMiners(b.minerCounts);
+  const cap = minerCap(b.repositories);
+
+  rows.push({ heading: 'PROBE' });
+  rows.push({ label: 'Rank', value: `${b.rankName} (${b.rankIndex})` });
+  rows.push({ label: 'Wall cycle', value: wallCycleName.value });
+  rows.push({ label: 'Shop cycle', value: String(b.shopCycle) });
+  rows.push({ label: 'Kills', value: String(b.probeKills) });
+  rows.push({ label: 'Upgrades', value: String(b.upgradeCount) });
+  rows.push({ label: 'Combat', value: b.hasStartedCombat ? 'active' : 'PAUSED' });
+  rows.push({ label: 'Rare', value: rareProbeLabel.value || '—' });
+  if (b.isClanned) rows.push({ label: 'Clan', value: b.clanName ?? '—' });
+  if (b.rareType === 'pather') rows.push({ label: 'Pather', value: `${b.patherWallsRemaining ?? 0}/50` });
+  if (b.trainingState) rows.push({ label: 'Training', value: `${b.trainingState}${b.trainingTimer ? ` (${formatTimer(b.trainingTimer)})` : ''}` });
+  if (b.novaVolleyTimer) rows.push({ label: 'Nova Volley', value: formatTimer(b.novaVolleyTimer) });
+  if (b.overdriveLevel) rows.push({ label: 'Overdrive', value: `Lv ${b.overdriveLevel}` });
+  if (b.realityDriftCharges) rows.push({ label: 'Reality Drift', value: String(b.realityDriftCharges) });
+  if (b.wallPhaseTimer) rows.push({ label: 'Phase Walls', value: `inv ${formatTimer(b.wallPhaseInvuln ?? 0)} (${formatTimer(b.wallPhaseTimer)})` });
+
+  rows.push({ heading: 'ECONOMIE' });
+  rows.push({ label: 'Vespene', value: `${formatNumber(b.vespene)} (+${formatNumber(gasPerSec.value + mineIncomePerSec.value)}/s)` });
+  rows.push({ label: 'Minerals', value: `${formatNumber(b.minerals)} (+${formatNumber(minerIncomePerSec.value)}/s · accum ${formatNumber(b.mineralAccum)})` });
+  rows.push({ label: 'Mineral price', value: `${b.mineralPrice}g / 10💎` });
+  rows.push({ label: 'Generator', value: `Lv ${b.generatorLevel} (${formatNumber(gasPerSec.value)}/s)` });
+  rows.push({ label: 'Next gen', value: nextGeneratorLabel.value });
+  rows.push({ label: 'Market', value: marketStatus.value });
+  rows.push({ label: 'Depot', value: b.depotState === 'building' ? `building (${formatTimer(b.depotTimer)})` : b.depotState === 'built' ? 'built' : 'none' });
+  rows.push({ label: 'Training', value: b.minerTrainingType ? `${minerDef(b.minerTrainingType).name} (${formatTimer(b.minerTrainingTimer)})` : '—' });
+
+  rows.push({ heading: 'MINERS' });
+  for (const t of MINER_TYPES) {
+    const n = b.minerCounts[t];
+    if (n > 0) rows.push({ label: minerDef(t).name, value: String(n) });
+  }
+  rows.push({ label: 'Total / cap', value: `${total}/${cap}` });
+
+  rows.push({ heading: 'MINES' });
+  for (const l of MINE_LEVELS) {
+    const n = b.mineCounts[l];
+    if (n > 0) rows.push({ label: `Mine Lv ${l}`, value: String(n) });
+  }
+  rows.push({ label: 'Building', value: b.mineBuildLevel !== null ? `Lv ${b.mineBuildLevel} (${formatTimer(b.mineBuildTimer)})` : '—' });
+  rows.push({ label: 'Mine income', value: `+${formatNumber(mineIncomePerSec.value)}/s` });
+  rows.push({ label: 'Repositories', value: `${b.repositories} (cap ${cap})` });
+
+  rows.push({ heading: 'WALL' });
+  rows.push({ label: 'Echelon', value: `${wallPosToLevel(wallPos.value)} (pos ${wallPos.value})` });
+  rows.push({ label: 'Name', value: `${wallDisplayName.value}${b.wall.tier !== 'final' && b.rareType !== 'pather' ? ` Lv ${b.wall.level}` : ''}` });
+  rows.push({ label: 'HP', value: `${formatNumber(b.wall.currentHp)} / ${formatNumber(b.wall.maxHp)}` });
+  rows.push({ label: 'Defense', value: formatNumber(b.wall.defense) });
+  rows.push({ label: 'Next upgrade', value: wallUpgradeCostLabel.value });
+
+  rows.push({ heading: 'TURRET' });
+  rows.push({ label: 'Turrets', value: `${b.turret.count} × Lv ${b.turret.level}` });
+  rows.push({ label: 'Attack power', value: formatNumber(b.turret.attackPower) });
+
+  rows.push({ heading: 'ABILITY' });
+  rows.push({ label: abilityName.value, value: b.abilityActiveTimer > 0 ? `ACTIVE (${formatTimer(b.abilityActiveTimer)})` : `CD ${formatTimer(b.abilityCooldown)}` });
+
+  return rows;
 });
 
 function formatTimer(value: number): string {
@@ -239,14 +378,57 @@ function formatTimer(value: number): string {
           </div>
         </div>
 
-        <!-- Upgrade Timer / Progress Bar -->
-        <div class="w-full mb-3 bg-gray-900 px-3 py-2 rounded border border-amber-900/40">
-          <div class="flex justify-between text-[10px] text-amber-300 mb-1 font-bold">
-            <span>PROBES UPGRADING DEFENSES {{ !probeBase.hasStartedCombat ? '(PAUSED)' : (probeBase.ability === 'chrono' && probeBase.abilityActiveTimer > 0 ? '(+20% SPEED)' : '') }}</span>
-            <span class="font-mono">{{ formatTimer(probeBase.timeUntilUpgrade) }}</span>
+        <!-- Probe Economy (vespene pool drives wall upgrades) -->
+        <div class="w-full mb-3 bg-gray-900 px-3 py-2 rounded border border-emerald-900/40">
+          <div class="flex items-center justify-between text-[10px] text-emerald-300 mb-1 font-bold">
+            <span>PROBE ECONOMY{{ !probeBase.hasStartedCombat ? ' (PAUSED)' : '' }}</span>
+            <span class="flex items-center gap-2">
+              <button
+                class="px-1.5 py-0.5 rounded border border-emerald-700/60 text-emerald-300 hover:bg-emerald-950 cursor-pointer"
+                :title="showProbeInspect ? 'Hide probe inspect table' : 'Show probe inspect table (temporary)'"
+                @click="showProbeInspect = !showProbeInspect"
+              >
+                {{ showProbeInspect ? '🔽 VERBERG' : '🔍 INSPECT' }}
+              </button>
+              <span class="font-mono whitespace-nowrap">⛽ {{ formatNumber(probeBase.vespene) }} · {{ formatNumber(gasPerSec) }}/s</span>
+            </span>
           </div>
-          <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-amber-700/40">
-            <div class="bg-amber-500 h-full transition-all duration-1000" :style="{ width: `${upgradeProgressPercentage}%` }"></div>
+          <div class="flex justify-between items-center text-[11px] text-gray-200">
+            <span class="truncate mr-2">► Next defence: <span class="text-amber-300 font-mono">{{ wallUpgradeCostLabel }}</span></span>
+            <span class="font-mono text-cyan-300 shrink-0">💎 {{ formatNumber(probeBase.minerals) }}</span>
+          </div>
+          <div class="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-emerald-700/40 mt-1">
+            <div class="bg-emerald-500 h-full transition-all duration-1000" :style="{ width: `${wallProgressPct}%` }"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-gray-400 mt-1 font-bold">
+            <span>⚙️ Gen Lv {{ probeBase.generatorLevel }}</span>
+            <span>{{ marketStatus }}</span>
+          </div>
+          <div class="flex justify-between text-[10px] text-gray-400 mt-0.5 font-bold">
+            <span class="truncate mr-2">{{ depotStatus }}</span>
+            <span class="font-mono text-cyan-300 shrink-0">⛏️ +{{ formatNumber(minerIncomePerSec) }}/s</span>
+          </div>
+          <div v-if="mineStatus || mineIncomePerSec > 0" class="flex justify-between text-[10px] text-gray-400 mt-0.5 font-bold">
+            <span class="truncate mr-2">{{ mineStatus || '—' }}</span>
+            <span class="font-mono text-cyan-300 shrink-0">⚒️ +{{ formatNumber(mineIncomePerSec) }}/s</span>
+          </div>
+          <div v-if="nextGeneratorLabel" class="text-[10px] text-gray-500 mt-0.5 text-center">{{ nextGeneratorLabel }}</div>
+
+          <!-- T8d (TIJDELIJK): live probe-inspect-tabel -->
+          <div v-if="showProbeInspect" class="mt-2 pt-2 border-t border-emerald-800/40">
+            <table class="w-full text-[10px] font-mono text-gray-300">
+              <tbody>
+                <template v-for="(row, idx) in inspectRows" :key="idx">
+                  <tr v-if="row.heading" class="bg-emerald-950/60">
+                    <td colspan="2" class="px-1.5 py-0.5 text-emerald-300 font-bold tracking-wider">{{ row.heading }}</td>
+                  </tr>
+                  <tr v-else class="border-b border-gray-800/60">
+                    <td class="px-1.5 py-0.5 text-gray-500 whitespace-nowrap">{{ row.label }}</td>
+                    <td class="px-1.5 py-0.5 text-right text-gray-200 break-all">{{ row.value }}</td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -263,7 +445,7 @@ function formatTimer(value: number): string {
         <div class="w-full bg-gray-900/80 px-4 py-2.5 rounded-lg border border-green-700/40 mb-3">
           <div class="flex justify-between items-center text-xs font-bold mb-1">
             <span class="text-green-400">⚔️ ZEALOT HP</span>
-            <span class="font-mono whitespace-nowrap">{{ formatNumber(zealotHp) }} / {{ formatNumber(zealotMaxHp) }}</span>
+            <span class="font-mono whitespace-nowrap">{{ formatNumber(zealotHp) }} / {{ formatNumber(zealotMaxHp) }} <span class="text-green-300">({{ Math.round(zealotHpPercentage) }}%)</span></span>
           </div>
           <div class="w-full bg-gray-800 h-2.5 rounded-full overflow-hidden border border-green-700/50">
             <div class="bg-gradient-to-r from-green-700 to-green-400 h-full transition-all duration-150" :style="{ width: `${zealotHpPercentage}%` }"></div>
@@ -335,5 +517,3 @@ function formatTimer(value: number): string {
   </div>
 </template>
 
-<style scoped>
-</style>

@@ -6,6 +6,7 @@ import { useCombat } from '../composables/useCombat';
 import { useSaveSystem, SlotMeta } from '../composables/useSaveSystem';
 import { useAudio } from '../composables/useAudio';
 import { useCombo } from '../composables/useCombo';
+import { useGameLoop } from '../composables/useGameLoop';
 import { useSkillTree, createDefaultSkillTreeState } from '../composables/useSkillTree';
 import { Item, InventorySlot } from '../types/Item';
 import type { ZealotStats } from '../types/Zealot';
@@ -13,6 +14,7 @@ import type { ProbeBase } from '../types/ProbeBase';
 import { scaleShopItem, getShopMultiplier, getShopMultiplierLabel, getShopRankName } from '../utils/shopUpgrade';
 import { formatNumber } from '../utils/format';
 import { big } from '../utils/bigNumber';
+import { AUTOSAVE_ENABLED_KEY, DISABLE_PATHER_KEY, DEV_SCREEN_TYPE_KEY, TUTORIAL_COMPLETED_KEY } from '../utils/keys';
 import { SKILL_NODES, SkillTreeState } from '../types/SkillTree';
 import { AVAILABLE_SHOP_ITEMS } from '../data/shopCatalog';
 
@@ -32,10 +34,10 @@ import ZealotXpBar from '../Components/ZealotXpBar.vue';
 const currentView = ref<'battle' | 'shop'>('battle');
 const isAtShop = computed(() => currentView.value === 'shop');
 
-const autosaveEnabled = ref<boolean>(localStorage.getItem('pvz2_autosave_enabled') !== 'false');
+const autosaveEnabled = ref<boolean>(localStorage.getItem(AUTOSAVE_ENABLED_KEY) !== 'false');
 
 watch(autosaveEnabled, (val) => {
-  localStorage.setItem('pvz2_autosave_enabled', String(val));
+  localStorage.setItem(AUTOSAVE_ENABLED_KEY, String(val));
 });
 
 function toggleAutosave() {
@@ -47,10 +49,45 @@ function toggleAutosave() {
 const { slots, totalEquipmentStats, equipItem, unequipItem, loadInventory } = useInventory();
 const skillTree = useSkillTree();
 const { state: zealotState, maxHp, attackPower, attackSpeed, currentDps, defense, hpRegen, takeDamage, computeReducedDamage, heal, gainMinerals, addVespene, spendCurrency, convertMaxMineralsToVespene, useEmergencyTeleport, loadState, recordClick } = useZealot(totalEquipmentStats, isAtShop, skillTree.bonuses);
-const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase, advanceWallCycles } = useCombat();
+const { probeBase, isEngagedInCombat, totalTurretDps, autoRepairWall, tickProbeUpgrades, tickProbeEconomy, damageWall, stopCombat, loadCombatState, rerollIfPather, createProbeBase, advanceWallCycles } = useCombat();
 const { saveToSlot, autoSave, loadFromSlot, getAllSlotMetadata, getMostRecentSlot, loadLatestGame, deleteSlot, deleteAllSlots, saveTrigger } = useSaveSystem(zealotState, slots, probeBase, skillTree.state);
 const combo = useCombo();
 const audio = useAudio();
+
+// Centralized game-loop scheduler (auto-attack, fast/slow tick, autosave)
+const hasGloves = computed(() => totalEquipmentStats.value.hasGloves);
+const { startLoops, stopLoops } = useGameLoop({
+  zealotState,
+  maxHp,
+  attackSpeed,
+  currentDps,
+  hpRegen,
+  hasGloves,
+  currentView,
+  isEngagedInCombat,
+  totalTurretDps,
+  probeBase,
+  autosaveEnabled,
+  skillBonuses: skillTree.bonuses,
+  heal,
+  takeDamage,
+  computeReducedDamage,
+  useEmergencyTeleport,
+  stopCombat,
+  autoRepairWall,
+  tickProbeUpgrades,
+  tickProbeEconomy,
+  damageWall,
+  registerAutoAttackClick: () => combo.registerClick(),
+  registerDamageTaken: () => combo.registerDamageTaken(),
+  playSfx: (name) => audio.playSfx(name),
+  performAttack,
+  handleWallDestroyed,
+  autoSave,
+  showSaveNotification,
+  handleReset,
+  onEmergencyTeleport: triggerEmergencyTeleportModal,
+});
 
 // Apply skill tree combo max bonus to combo system
 watch(skillTree.bonuses, (b) => {
@@ -65,15 +102,16 @@ const showDevTerminal = ref(false);
 const showTutorial = ref(false);
 const showSkillTreeModal = ref(false);
 const saveNotificationText = ref('Game loaded!');
+const saveNotificationIcon = ref<string>('💾');
 const autoSaveNotification = ref(false);
 let notificationTimeout: number | null = null;
 
-const disablePather = ref<boolean>(localStorage.getItem('pvz2_disable_pather') === 'true');
+const disablePather = ref<boolean>(localStorage.getItem(DISABLE_PATHER_KEY) === 'true');
 
 const devScreenType = ref<'auto' | 'mobile' | 'desktop'>(
-  localStorage.getItem('pvz2_dev_screen_type') === 'mobile'
+  localStorage.getItem(DEV_SCREEN_TYPE_KEY) === 'mobile'
     ? 'mobile'
-    : localStorage.getItem('pvz2_dev_screen_type') === 'desktop'
+    : localStorage.getItem(DEV_SCREEN_TYPE_KEY) === 'desktop'
       ? 'desktop'
       : 'auto',
 );
@@ -81,13 +119,13 @@ const devScreenType = ref<'auto' | 'mobile' | 'desktop'>(
 function toggleDevScreenType(): 'mobile' | 'desktop' {
   const next = devScreenType.value === 'desktop' ? 'mobile' : 'desktop';
   devScreenType.value = next;
-  localStorage.setItem('pvz2_dev_screen_type', next);
+  localStorage.setItem(DEV_SCREEN_TYPE_KEY, next);
   return next;
 }
 
 function toggleDisablePather() {
   disablePather.value = !disablePather.value;
-  localStorage.setItem('pvz2_disable_pather', String(disablePather.value));
+  localStorage.setItem(DISABLE_PATHER_KEY, String(disablePather.value));
   if (disablePather.value) {
     rerollIfPather();
   }
@@ -104,13 +142,23 @@ const mostRecentSlot = computed(() => {
   return getMostRecentSlot();
 });
 
-function showSaveNotification(text = 'Game saved!') {
+function showSaveNotification(text = 'Game saved!', icon = '💾') {
   saveNotificationText.value = text;
+  saveNotificationIcon.value = icon;
   autoSaveNotification.value = true;
   if (notificationTimeout) clearTimeout(notificationTimeout);
   notificationTimeout = window.setTimeout(() => {
     autoSaveNotification.value = false;
   }, 3000);
+}
+
+// Blocking "Emergency Teleport" overlay: shown after every successful emergency
+// teleport. The zealot can only continue by clicking the button, so a teleport
+// can never be missed.
+const showEmergencyTeleportModal = ref(false);
+
+function triggerEmergencyTeleportModal() {
+  showEmergencyTeleportModal.value = true;
 }
 
 function handleOpenSaveModal() {
@@ -135,6 +183,7 @@ function handleLoadSlot(slot: 'A' | 'B' | 'C' | 'autosave') {
     if (saved.inventory) loadInventory(saved.inventory);
     if (saved.probeBase) loadCombatState(saved.probeBase);
     if (saved.skillTree) skillTree.deserialize(saved.skillTree);
+    combo.resetCombo();
     showLoadModal.value = false;
     const slotName = slot === 'autosave' ? 'Autosave' : `Slot ${slot}`;
     showSaveNotification(`Game loaded from ${slotName}!`);
@@ -308,21 +357,21 @@ function performAttack() {
     addVespene(mineralsGained.mul(siphon).floor());
   }
   audio.playSfx('wallHit');
-  // Capture wall max HP so kill rewards (bounty % of wall HP) use the wall that was actually destroyed
+  // Capture wall max HP + level so kill rewards (bounty % and XP) use the wall that was actually destroyed
   const wallMaxHp = probeBase.value.wall.maxHp;
+  const wallLevel = probeBase.value.wall.level || 0;
   const res = damageWall(dmg, zealotState.value);
   if (res.destroyed) {
     audio.playSfx('wallDestroy');
     combo.registerWallDestroyed();
-    handleWallDestroyed(wallMaxHp);
+    handleWallDestroyed(wallMaxHp, wallLevel);
   }
 }
 
 // Shared kill-reward logic (XP + kill bounty + undying reset) — runs for both attack kills and reflect kills
-function handleWallDestroyed(wallMaxHpAtKill: ReturnType<typeof big>) {
-  // XP gain on probe/wall destruction
-  const wallLevel = probeBase.value.wall?.level || 0;
-  const wallXp = 10 + wallLevel;
+function handleWallDestroyed(wallMaxHpAtKill: ReturnType<typeof big>, destroyedWallLevel: number) {
+  // XP gain on probe/wall destruction (uses the destroyed wall's level, not the newly spawned one)
+  const wallXp = 10 + destroyedWallLevel;
   const probeXp = probeBase.value.isRare ? 50 : 25;
   const bonusXp = Math.min(50, Math.floor(probeBase.value.rankIndex / 3));
   skillTree.grantXp(wallXp + probeXp + bonusXp);
@@ -378,167 +427,36 @@ function handleConvertMaxVespene() {
   }
 }
 
-// Unlock a skill tree node
-function handleUnlockSkill(nodeId: string) {
+// Invest a talent point into a skill tree node
+function handleInvest(nodeId: string) {
   const node = SKILL_NODES.find(n => n.id === nodeId);
   if (!node) return;
-  if (skillTree.unlockNode(nodeId)) {
+  if (skillTree.investPoint(nodeId)) {
+    const rank = skillTree.getRank(nodeId);
     audio.playSfx('shopBuy');
     if (autosaveEnabled.value) autoSave();
-    showSaveNotification(`Skill unlocked: ${node.name}!`);
+    showSaveNotification(`${node.name} ranked up to ${rank}/${node.maxPoints}!`);
   }
 }
 
-// Next cost for the XP bar (lowest available cost across branches)
-const nextSkillCost = computed(() => {
-  let lowest: number | null = null;
-  (['vengeance', 'resilience', 'wealth'] as const).forEach(branch => {
-    const cost = skillTree.getNextCost(branch);
-    if (cost !== null && (lowest === null || cost < lowest)) lowest = cost;
-  });
-  return lowest;
-});
-
-// Game tick loop (Regen, Turret Damage, Auto-Save, Auto-Attack)
-let fastTickInterval: number | null = null;
-let slowTickInterval: number | null = null;
-let saveInterval: number | null = null;
-let autoAttackInterval: number | null = null;
-
-function startGameLoops() {
-  // Reliable Auto-Attack Interval when gloves / vespene blade equipped
-  let lastAtkTime = Date.now();
-  autoAttackInterval = window.setInterval(() => {
-    if (zealotState.value.isImmobilized) return;
-    if (totalEquipmentStats.value.hasGloves && currentView.value === 'battle') {
-      const now = Date.now();
-      const interval = 1000 / Math.max(0.1, attackSpeed.value);
-      if (now - lastAtkTime >= interval) {
-        performAttack();
-        combo.registerAutoAttackClick();
-        lastAtkTime = now;
-      }
-    }
-  }, 25);
-
-  // Fast tick (100ms) for smooth HP regen, smooth Turret combat damage, and 200ms wall repair for double/triple basers
-  let wallRepairCounter = 0;
-  fastTickInterval = window.setInterval(() => {
-    // Track highest average DPS ever recorded
-    if (currentDps.value.gt(zealotState.value.highestAverageDps)) {
-      zealotState.value.highestAverageDps = currentDps.value;
-    }
-
-    // HP Regeneration (per 100ms)
-    if (hpRegen.value.gt(0) && zealotState.value.hp.lt(maxHp.value)) {
-      heal(hpRegen.value.div(10));
-    }
-
-    // 200ms wall repair check for double/triple basers (every 2nd 100ms tick = 200ms)
-    wallRepairCounter++;
-    if (wallRepairCounter >= 2) {
-      wallRepairCounter = 0;
-      if (probeBase.value.rareType === 'doubleBaser' || probeBase.value.rareType === 'tripleBaser') {
-        autoRepairWall(true);
-      }
-    }
-
-    // Turret Damage if engaged in combat (per 100ms) - PAUSED during Training Probe waiting15 or castingVoid states so zealot never dies helplessly!
-    if (isEngagedInCombat.value && currentView.value === 'battle') {
-      const isTrainingBlocked = probeBase.value.rareType === 'trainingProbe' && (probeBase.value.trainingState === 'waiting15' || probeBase.value.trainingState === 'castingVoid');
-      if (totalTurretDps.value.gt(0) && !isTrainingBlocked) {
-        const damageThisTick = totalTurretDps.value.div(10);
-        const reducedDamage = computeReducedDamage(damageThisTick);
-        let tookHit = false;
-        // Undying skill: survive a fatal blow once per fight at 1 HP, then 3s full damage immunity
-        if (zealotState.value.damageImmunityTimer <= 0) {
-          if (
-            skillTree.bonuses.value.undyingEnabled &&
-            !zealotState.value.undyingUsedThisFight &&
-            zealotState.value.hp.lte(reducedDamage)
-          ) {
-            zealotState.value.hp = big(1);
-            zealotState.value.undyingUsedThisFight = true;
-            zealotState.value.damageImmunityTimer = 3;
-            audio.playSfx('teleport');
-          } else {
-            takeDamage(damageThisTick);
-            tookHit = true;
-          }
-          if (damageThisTick.gte(1)) {
-            audio.playSfx('turretHit');
-            combo.registerDamageTaken();
-          }
-          if (zealotState.value.hp.lte(0)) {
-            const teleported = useEmergencyTeleport();
-            if (teleported) {
-              audio.playSfx('teleport');
-              stopCombat(zealotState.value);
-              currentView.value = 'shop';
-              if (autosaveEnabled.value) autoSave();
-              showSaveNotification(`⚠️ EMERGENCY TELEPORT ACTIVATED! (${zealotState.value.emergencyTeleports} remaining) You warped back to the Zealot Shop!`);
-            } else {
-              audio.playSfx('death');
-              stopCombat(zealotState.value);
-              showSaveNotification('💀 ZEALOT HAS FALLEN IN BATTLE! No emergency teleports remaining. Hard resetting session...');
-              handleReset();
-            }
-          }
-          // Reflective Aegis: reflect a fraction of damage actually taken back at the wall
-          const thorns = skillTree.bonuses.value.thornsReflect;
-          if (tookHit && thorns > 0) {
-            const reflected = damageThisTick.mul(thorns).floor();
-            if (reflected.gt(0)) {
-              const reflectWallMaxHp = probeBase.value.wall.maxHp;
-              const reflectRes = damageWall(reflected, zealotState.value);
-              if (reflectRes.destroyed) {
-                handleWallDestroyed(reflectWallMaxHp);
-              }
-            }
-          }
-        }
-      }
-    }
-  }, 100);
-
-  // Slow tick (1000ms) for upgrade timers and normal wall auto-repair
-  slowTickInterval = window.setInterval(() => {
-    // Run-based play time counter (1 second per tick)
-    zealotState.value.totalPlayTimeSeconds += 1;
-
-    if (probeBase.value.rareType !== 'doubleBaser' && probeBase.value.rareType !== 'tripleBaser') {
-      autoRepairWall(false);
-    }
-
-    // Ability immunity timer counts down every second
-    if (zealotState.value.abilityImmunityTimer > 0) {
-      zealotState.value.abilityImmunityTimer -= 1;
-    }
-
-    // Undying damage immunity window counts down every second
-    if (zealotState.value.damageImmunityTimer > 0) {
-      zealotState.value.damageImmunityTimer -= 1;
-    }
-
-    const upgraded = tickProbeUpgrades(zealotState.value);
-    if (upgraded) {
-      if (autosaveEnabled.value) autoSave();
-    }
-  }, 1000);
-
-  // Autosave interval every 2 minutes
-  saveInterval = window.setInterval(() => {
-    if (autosaveEnabled.value) {
-      autoSave();
-      showSaveNotification('Autosave updated!');
-    }
-  }, 120000);
+// TIJDELIJKE respec (evaluate before final build): refunds all invested talent points.
+// Lets a player switch exclusive of/of choices without losing level/XP.
+function handleRespec() {
+  const refunded = skillTree.spentPoints.value;
+  if (refunded <= 0) return;
+  skillTree.respec();
+  audio.playSfx('shopOpen');
+  if (autosaveEnabled.value) autoSave();
+  showSaveNotification(`RESPEC (TIJDELIJK): ${refunded} talent points refunded!`);
 }
 
+// Game loops (auto-attack, fast/slow tick, autosave) now live in useGameLoop.
+// startLoops/stopLoops own the interval lifecycle (idempotent start + teardown).
+
 function handleTutorialComplete() {
-  localStorage.setItem('pvz2_tutorial_completed', 'true');
+  localStorage.setItem(TUTORIAL_COMPLETED_KEY, 'true');
   showTutorial.value = false;
-  startGameLoops();
+  startLoops();
 }
 
 function handleOpenTutorial() {
@@ -548,9 +466,7 @@ function handleOpenTutorial() {
 function handleTutorialClose() {
   showTutorial.value = false;
   // If this was a new game (loops never started), start them now to not soft-lock the player
-  if (!fastTickInterval && !slowTickInterval && !autoAttackInterval) {
-    startGameLoops();
-  }
+  startLoops();
 }
 
 onMounted(() => {
@@ -572,19 +488,16 @@ document.removeEventListener('keydown', initAudioOnce);
   document.addEventListener('keydown', initAudioOnce, { once: true });
 
   // New player detection: no save exists + tutorial never completed -> start paused with tutorial
-  const tutorialCompleted = localStorage.getItem('pvz2_tutorial_completed') === 'true';
+  const tutorialCompleted = localStorage.getItem(TUTORIAL_COMPLETED_KEY) === 'true';
   if (!saved && !tutorialCompleted) {
     showTutorial.value = true;
   } else {
-    startGameLoops();
+    startLoops();
   }
 });
 
 onUnmounted(() => {
-  if (fastTickInterval) clearInterval(fastTickInterval);
-  if (slowTickInterval) clearInterval(slowTickInterval);
-  if (saveInterval) clearInterval(saveInterval);
-  if (autoAttackInterval) clearInterval(autoAttackInterval);
+  stopLoops();
   if (autosaveEnabled.value) {
     autoSave();
   }
@@ -624,6 +537,7 @@ onUnmounted(() => {
        :currentTrackName="audio.currentTrackName.value"
        :currentTrackEmoji="audio.currentTrackEmoji.value"
        :trackPack="audio.trackPack.value"
+       :talentPoints="skillTree.talentPoints.value"
        @save="handleOpenSaveModal"
        @load="handleOpenLoadModal"
        @reset="handleReset"
@@ -636,6 +550,7 @@ onUnmounted(() => {
        @setTrackPack="audio.setTrackPack"
        @toggleVisualizer="audio.toggleVisualizer"
        @openTutorial="handleOpenTutorial"
+       @openSkillTree="showSkillTreeModal = true"
      />
 
     <!-- Sticky View Switcher (BATTLE / SHOP) -->
@@ -698,7 +613,6 @@ onUnmounted(() => {
       <div class="order-2 lg:order-1 lg:col-span-1 space-y-4 sm:space-y-6" data-dev="layout-stats">
         <ZealotStatsComponent 
           :zealot="zealotState"
-          :maxHp="maxHp"
           :attackPower="attackPower"
           :attackSpeed="attackSpeed"
           :currentDps="currentDps"
@@ -709,16 +623,26 @@ onUnmounted(() => {
         />
 
         <div class="bg-gray-900 border border-cyan-500/40 rounded-lg p-3">
-          <button
-            @click="showSkillTreeModal = true"
-            class="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold px-4 py-2.5 rounded-lg shadow-lg shadow-amber-900/30 transition-all text-sm tracking-wider flex items-center justify-center gap-2"
-          >
-            ⚡ OPEN SKILL TREE
-          </button>
+          <div class="relative">
+            <button
+              @click="showSkillTreeModal = true"
+              class="w-full bg-amber-700 hover:bg-amber-600 text-white font-bold px-4 py-2.5 rounded-lg shadow-lg shadow-amber-900/30 transition-all text-sm tracking-wider flex items-center justify-center gap-2"
+            >
+              ⚡ OPEN SKILL TREE
+            </button>
+            <span
+              v-if="skillTree.talentPoints.value > 0"
+              class="absolute -top-2 -right-2 min-w-6 h-6 px-1.5 rounded-full bg-amber-400 border border-amber-200 text-black text-xs font-black flex items-center justify-center shadow-lg shadow-amber-500/50 skill-btn-point-pulse"
+              title="Talent points available"
+            >
+              ✦{{ skillTree.talentPoints.value }}
+            </span>
+          </div>
           <ZealotXpBar
-            :xp="skillTree.totalXp.value"
-            :spent-xp="skillTree.state.value.spentXp"
-            :next-cost="nextSkillCost"
+            :level="skillTree.level.value"
+            :xp-into-level="skillTree.xpIntoLevel.value"
+            :xp-for-next="skillTree.xpForNext.value"
+            :talent-points="skillTree.talentPoints.value"
           />
         </div>
       </div>
@@ -733,10 +657,13 @@ onUnmounted(() => {
     <!-- Skill Tree Modal Overlay -->
     <SkillTreeModal
       v-if="showSkillTreeModal"
-      :unlocked-nodes="skillTree.state.value.unlockedNodes"
-      :available-xp="skillTree.availableXp.value"
-      :total-xp="skillTree.totalXp.value"
-      @unlock="handleUnlockSkill"
+      :level="skillTree.level.value"
+      :xp-into-level="skillTree.xpIntoLevel.value"
+      :xp-for-next="skillTree.xpForNext.value"
+      :talent-points="skillTree.talentPoints.value"
+      :ranks="skillTree.ranks.value"
+      @invest="handleInvest"
+      @respec="handleRespec"
       @close="showSkillTreeModal = false"
     />
 
@@ -823,12 +750,70 @@ onUnmounted(() => {
       leave-to-class="opacity-0 scale-95 translate-y-1"
     >
       <div v-if="autoSaveNotification" class="fixed top-[calc(env(safe-area-inset-top)+8rem)] left-1/2 -translate-x-1/2 z-40 pointer-events-none w-auto max-w-[min(92vw,30rem)] bg-gray-950/90 backdrop-blur-md border border-cyan-400/60 px-4 py-2.5 rounded-xl shadow-2xl shadow-cyan-900/40 ring-1 ring-cyan-400/30 flex items-center gap-2.5">
-        <span class="text-sm text-cyan-300 shrink-0">💾</span>
+        <span class="text-sm shrink-0">{{ saveNotificationIcon }}</span>
         <span class="text-cyan-100 font-bold text-xs sm:text-sm leading-snug text-center">{{ saveNotificationText }}</span>
+      </div>
+    </Transition>
+
+    <!-- Blocking Emergency Teleport Overlay: requires a click before the zealot can continue -->
+    <Transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0 scale-95"
+      enter-to-class="opacity-100 scale-100"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100 scale-100"
+      leave-to-class="opacity-0 scale-95"
+    >
+      <div v-if="showEmergencyTeleportModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm emergency-teleport-flash">
+        <div class="bg-gray-900 border-2 border-amber-400/80 rounded-2xl p-6 sm:p-8 text-center shadow-2xl shadow-amber-500/20 max-w-md w-full">
+          <div class="text-5xl sm:text-6xl mb-2">🛸</div>
+          <h2 class="text-2xl sm:text-3xl font-black text-amber-400 tracking-wide mb-2">EMERGENCY TELEPORT</h2>
+          <p class="text-sm text-gray-300 mb-1">The damage was too heavy — you warped back to the Zealot Shop.</p>
+          <p class="text-sm text-cyan-200 mb-6">
+            Emergency teleports remaining:
+            <span class="font-black text-amber-300 text-lg">{{ zealotState.emergencyTeleports }}</span>
+          </p>
+          <button
+            @click="showEmergencyTeleportModal = false"
+            class="w-full bg-amber-500 hover:bg-amber-400 text-black font-black px-6 py-3.5 rounded-xl shadow-lg shadow-amber-600/40 transition-all text-lg tracking-widest cursor-pointer"
+          >
+            CONTINUE
+          </button>
+          <p class="text-[11px] text-gray-500 mt-3">You are safe at the shop with {{ zealotState.damageImmunityTimer }}s of damage immunity.</p>
+        </div>
       </div>
     </Transition>
   </div>
 </template>
 
-<style scoped>
+<style>
+.skill-btn-point-pulse {
+  animation: skill-btn-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes skill-btn-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 2px rgba(245, 158, 11, 0.55);
+  }
+}
+
+.emergency-teleport-flash {
+  animation: emergency-teleport-flash 1.4s ease-out;
+}
+
+@keyframes emergency-teleport-flash {
+  0% {
+    box-shadow: inset 0 0 0 0 rgba(251, 191, 36, 0);
+  }
+  30% {
+    box-shadow: inset 0 0 140px 50px rgba(251, 191, 36, 0.35);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(251, 191, 36, 0);
+  }
+}
 </style>
+

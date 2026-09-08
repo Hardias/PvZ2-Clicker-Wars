@@ -19,5 +19,3 @@ const active = computed(() => props.secondsRemaining > 0);
   </div>
 </template>
 
-<style scoped>
-</style>

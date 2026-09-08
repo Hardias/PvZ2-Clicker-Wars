@@ -175,5 +175,3 @@ function formatDate(timestamp: number | null): string {
   </div>
 </template>
 
-<style scoped>
-</style>

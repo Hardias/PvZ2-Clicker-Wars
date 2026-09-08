@@ -25,27 +25,8 @@ export function useCombo() {
     comboMax.value = value;
   }
 
-  /** Register a manual click — increases combo and resets the decay timer */
+  /** Register a combo-triggering click (manual attack or auto-attack) — increases combo and resets the decay timer */
   function registerClick() {
-    const now = Date.now();
-    if (now - lastClickTime <= COMBO_TIMEOUT_MS) {
-      comboCount.value = Math.min(comboMax.value, comboCount.value + 1);
-    } else {
-      comboCount.value = 1;
-    }
-    lastClickTime = now;
-
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-    timeoutId = window.setTimeout(() => {
-      comboCount.value = 0;
-      timeoutId = null;
-    }, COMBO_TIMEOUT_MS);
-  }
-
-  /** Register an auto-attack click — same as manual for combo purposes */
-  function registerAutoAttackClick() {
     const now = Date.now();
     if (now - lastClickTime <= COMBO_TIMEOUT_MS) {
       comboCount.value = Math.min(comboMax.value, comboCount.value + 1);
@@ -101,7 +82,6 @@ export function useCombo() {
     comboMax,
     setMaxCombo,
     registerClick,
-    registerAutoAttackClick,
     registerDamageTaken,
     registerWallDestroyed,
     resetCombo,

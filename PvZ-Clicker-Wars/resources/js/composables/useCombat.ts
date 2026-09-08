@@ -1,9 +1,10 @@
 import { ref, shallowRef, computed } from 'vue';
 import Decimal from 'break_eternity.js';
-import { ProbeBase, RareProbeType } from '../types/ProbeBase';
+import { ProbeBase, RareProbeType, MarketState } from '../types/ProbeBase';
 import { ZealotStats } from '../types/Zealot';
 import { BigNum, BigSource, big } from '../utils/bigNumber';
 import { getRankName, isSsRank, ssLevel } from '../utils/ranks';
+import { SAVE_SLOT_KEY, AUTOSAVE_KEY, LEGACY_PROBE_BASE_KEY } from '../utils/keys';
 import {
   WALL_CYCLE_STEPS,
   SS_REGEN_PER_SECOND,
@@ -22,22 +23,35 @@ import {
   REALITY_DRIFT_REVIVE_HP,
 } from '../utils/scaling';
 import {
-  calculateUpgradeTime,
-  getSsJourneyTimeForLevel,
   getRandomAbility,
   generateRareProbe,
   computeWallFromCount,
   buildTurret,
+  getWallProgressionPosition,
   SavedProbeData,
   coerceSavedProbe,
   loadUpgradeCount,
   deserializeWall,
   initSsMechanics,
 } from '../utils/combatMath';
+import {
+  econDefaults,
+  econCarryOver,
+  ProbeEconomyState,
+  MINERAL_BUY,
+  MINER_TYPES,
+  MinerType,
+  MINE_LEVELS,
+  MineLevel,
+  REPOSITORY,
+  emptyMineCounts,
+} from '../utils/economyMath';
+import { useProbeEconomy } from './useProbeEconomy';
 
 /**
- * Composable handling probe base combat, defenses, turret DPS, upgrade timers, rare/clanned probe
- * mechanics, and the infinite SS+ milestone tiers (SS/SSS/X/XD/XRD/XRFD).
+ * Composable handling probe base combat, defenses, turret DPS, rare/clanned probe
+ * mechanics, the infinite SS+ milestone tiers (SS/SSS/X/XD/XRD/XRFD), and the T8 probe
+ * economy (vespene + minerals) that now drives wall upgrades instead of a pure timer.
  */
 export function useCombat() {
   // Whether the zealot is currently engaged in active combat against turrets
@@ -46,12 +60,35 @@ export function useCombat() {
   // Clan list for Clanned probes appearing every 10 ranks starting from S+ rank
   const clanList = ['PvZWA', 'PvZMA', 'PvZAS', 'PvZNA', 'PvZ50', 'WBGA'];
 
+  function currentEco(b: ProbeBase): ProbeEconomyState {
+    return {
+      vespene: b.vespene,
+      minerals: b.minerals,
+      generatorLevel: b.generatorLevel,
+      mineralPrice: b.mineralPrice,
+      marketState: b.marketState,
+      marketTimer: b.marketTimer,
+      undergroundMarketBuilt: b.undergroundMarketBuilt,
+      depotState: b.depotState,
+      depotTimer: b.depotTimer,
+      minerTrainingType: b.minerTrainingType,
+      minerTrainingTimer: b.minerTrainingTimer,
+      mineralAccum: b.mineralAccum,
+      minerCounts: b.minerCounts,
+      mineCounts: b.mineCounts,
+      mineBuildLevel: b.mineBuildLevel,
+      mineBuildTimer: b.mineBuildTimer,
+      repositories: b.repositories,
+    };
+  }
+
   /** Create a new probe base with stats appropriate to its rank, rare type, and clan */
-  function createProbeBase(rankIndex: number, forcedRareType?: RareProbeType, upgradeCount = 0, wallCycle = 0, shopCycle = 0): ProbeBase {
+  function createProbeBase(rankIndex: number, forcedRareType?: RareProbeType, upgradeCount = 0, wallCycle = 0, shopCycle = 0, economy?: ProbeEconomyState): ProbeBase {
     const rankName = getRankName(rankIndex);
     const { isRare, rareType: initialRareType, isClanned, clanName } = generateRareProbe(rankIndex, clanList);
     const rareType = forcedRareType !== undefined ? forcedRareType : initialRareType;
     const ssLv = isSsRank(rankIndex) ? ssLevel(rankIndex) : 0;
+    const eco = economy || econDefaults();
 
     // Wall & turret level come straight from the global upgrade counter.
     let wall = computeWallFromCount(upgradeCount, rareType, isClanned, rankIndex);
@@ -62,8 +99,6 @@ export function useCombat() {
     let trainingState: 'waiting15' | 'window2' | 'castingVoid' | 'normal' = 'normal';
     let trainingTimer = 0;
 
-    // SS-tier: every SS level takes the frozen tier journey time (2640s for SS, escalating per tier).
-    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
     const ssMechanics = initSsMechanics(ssLv);
 
     if (rareType === 'pather') {
@@ -85,9 +120,7 @@ export function useCombat() {
       upgradeCount,
       wallCycle,
       shopCycle,
-      timeUntilUpgrade: ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
-      maxUpgradeTime: ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rankIndex, wallCycle),
-      ssJourneyTime,
+      ...eco,
       wall,
       turret,
       ability,
@@ -111,7 +144,7 @@ export function useCombat() {
   /** Load initial probe base from localStorage or default to rank D- */
   function loadInitialProbeBase(): ProbeBase {
     try {
-      const raw = localStorage.getItem('pvz2_slot_A') || localStorage.getItem('pvz2_slot_B') || localStorage.getItem('pvz2_slot_C') || localStorage.getItem('pvz2_autosave') || localStorage.getItem('pvz2_probe_base');
+      const raw = localStorage.getItem(`${SAVE_SLOT_KEY}A`) || localStorage.getItem(`${SAVE_SLOT_KEY}B`) || localStorage.getItem(`${SAVE_SLOT_KEY}C`) || localStorage.getItem(AUTOSAVE_KEY) || localStorage.getItem(LEGACY_PROBE_BASE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         const pb = (parsed.probeBase || parsed) as Record<string, unknown>;
@@ -125,6 +158,10 @@ export function useCombat() {
     return createProbeBase(0, null);
   }
 
+  function marketStateFromSaved(value: unknown): MarketState {
+    return value === 'building' || value === 'built' || value === 'upgrading' || value === 'selling' ? (value as MarketState) : 'none';
+  }
+
   /** Rebuild a full ProbeBase from (possibly legacy, possibly Decimal-string) save data. */
   function rebuildProbeFromSave(pb: SavedProbeData): ProbeBase {
     const rIndex = typeof pb.rankIndex === 'number' ? pb.rankIndex : 0;
@@ -135,15 +172,47 @@ export function useCombat() {
     const legacyWallCycle = typeof pb.wallCycle === 'number' ? pb.wallCycle : 0;
     const upgradeCount = loadUpgradeCount(pb, legacyWallCycle);
     const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
-    const ssLv = isSsRank(rIndex) ? ssLevel(rIndex) : 0;
-    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
-    const maxUpgradeTime = ssLv > 0 && ssJourneyTime ? ssJourneyTime : calculateUpgradeTime(rIndex, wallCycle);
     const tLevel = pb.turret && typeof pb.turret.level === 'number' ? pb.turret.level : 1;
     const turret = isPather ? { count: 0, level: tLevel, attackPower: big(0) } : buildTurret(upgradeCount, rareType, isClanned, rIndex);
     const wall =
       pb.wall && pb.wall.maxHp !== undefined && pb.wall.maxHp !== null
         ? deserializeWall(pb.wall)
         : computeWallFromCount(upgradeCount, rareType, isClanned, rIndex);
+    const ssLv = isSsRank(rIndex) ? ssLevel(rIndex) : 0;
+
+    // T8 economy (legacy saves fall back to fresh defaults).
+    const eco: ProbeEconomyState = {
+      vespene: typeof pb.vespene === 'number' ? (pb.vespene as number) : 0,
+      minerals: typeof pb.minerals === 'number' ? (pb.minerals as number) : 0,
+      generatorLevel: typeof pb.generatorLevel === 'number' ? Math.max(1, pb.generatorLevel as number) : 1,
+      mineralPrice: typeof pb.mineralPrice === 'number' ? (pb.mineralPrice as number) : MINERAL_BUY.basePrice,
+      marketState: marketStateFromSaved(pb.marketState),
+      marketTimer: typeof pb.marketTimer === 'number' ? (pb.marketTimer as number) : 0,
+      undergroundMarketBuilt: !!pb.undergroundMarketBuilt,
+      depotState: pb.depotState === 'building' || pb.depotState === 'built' ? pb.depotState : 'none',
+      depotTimer: typeof pb.depotTimer === 'number' ? (pb.depotTimer as number) : 0,
+      minerTrainingType: MINER_TYPES.includes(pb.minerTrainingType as MinerType) ? (pb.minerTrainingType as MinerType) : null,
+      minerTrainingTimer: typeof pb.minerTrainingTimer === 'number' ? (pb.minerTrainingTimer as number) : 0,
+      mineralAccum: typeof pb.mineralAccum === 'number' ? (pb.mineralAccum as number) : 0,
+      minerCounts: MINER_TYPES.reduce(
+        (acc, t) => {
+          acc[t] = pb.minerCounts && typeof pb.minerCounts[t] === 'number' ? pb.minerCounts[t] : 0;
+          return acc;
+        },
+        {} as Record<MinerType, number>,
+      ),
+      mineCounts: MINE_LEVELS.reduce(
+        (acc, l) => {
+          acc[l] = pb.mineCounts && typeof pb.mineCounts[l] === 'number' ? pb.mineCounts[l] : 0;
+          return acc;
+        },
+        emptyMineCounts(),
+      ),
+      mineBuildLevel: MINE_LEVELS.includes((pb.mineBuildLevel ?? 0) as MineLevel) ? (pb.mineBuildLevel as MineLevel) : null,
+      mineBuildTimer: typeof pb.mineBuildTimer === 'number' ? (pb.mineBuildTimer as number) : 0,
+      repositories: typeof pb.repositories === 'number' ? Math.max(0, Math.min(pb.repositories, REPOSITORY.max)) : 0,
+    };
+
     return {
       rankIndex: rIndex,
       rankName: pb.rankName || getRankName(rIndex),
@@ -151,9 +220,7 @@ export function useCombat() {
       upgradeCount,
       wallCycle,
       shopCycle: typeof pb.shopCycle === 'number' ? pb.shopCycle : 0,
-      timeUntilUpgrade: Math.max(1, Math.min(maxUpgradeTime, typeof pb.timeUntilUpgrade === 'number' ? pb.timeUntilUpgrade : maxUpgradeTime)),
-      maxUpgradeTime,
-      ssJourneyTime,
+      ...eco,
       wall,
       turret,
       ability: pb.ability || getRandomAbility(rIndex),
@@ -197,6 +264,46 @@ export function useCombat() {
     return dps;
   });
 
+  /** Wall upgrade cost position = the probe's current wall-cycle position (0..17). */
+  function getWallPos(): number {
+    return getWallProgressionPosition(probeBase.value.wall.tier, probeBase.value.wall.level);
+  }
+
+  /** Wall is under threat when the zealot is engaged and the wall is chipping faster than repair. */
+  const isWallUnderThreat = computed(() => {
+    const base = probeBase.value;
+    return isEngagedInCombat.value && base.wall.currentHp.lt(base.wall.maxHp);
+  });
+
+  /** Advance the wall one level (spent gas/minerals are already deducted by the economy). */
+  function advanceWallLevel() {
+    const base = probeBase.value;
+    if (base.rareType === 'pather') return; // Pathers only ever have level-1 walls.
+    const upgradeCount = base.upgradeCount + 1;
+    const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
+    const wall = computeWallFromCount(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
+    const turret = buildTurret(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
+    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
+    probeBase.value = {
+      ...base,
+      wall,
+      turret,
+      upgradeCount,
+      wallCycle,
+      // XRD Reality Drift: fresh revive charges every level-up
+      realityDriftCharges: getTierFlags(ssLv).realityDrift ? REALITY_DRIFT_MAX_CHARGES : undefined,
+    };
+  }
+
+  // T8 probe economy (drives wall upgrades; the pure upgrade timer is gone).
+  const probeEco = useProbeEconomy(probeBase, getWallPos, () => isWallUnderThreat.value, advanceWallLevel);
+
+  /** Economy tick gated on first combat (probes are dormant until the zealot attacks). */
+  function tickProbeEconomy(): boolean {
+    if (!probeBase.value.hasStartedCombat) return false;
+    return probeEco.tickProbeEconomy();
+  }
+
   /** Automatically repair wall HP over time (supports 200ms fast ticks for double/triple basers) */
   function autoRepairWall(isFastTick = false) {
     const base = probeBase.value;
@@ -232,9 +339,9 @@ export function useCombat() {
   }
 
   /**
-   * Tick upgrade countdown timer, probe abilities (Chrono / Void Prism / Training / Pather), and the
-   * SS+ tier mechanic timers (Nova Volley window, Overdrive ramp, Phase Wall phase cadence).
-   * Returns true when a defense upgrade triggered.
+   * Tick probe abilities (Chrono / Void Prism / Training / Pather) and the SS+ tier mechanic
+   * timers (Nova Volley window, Overdrive ramp, Phase Wall phase cadence). Wall upgrades are
+   * handled by the probe economy (tickProbeEconomy), not here.
    */
   function tickProbeUpgrades(zealotState?: ZealotStats): boolean {
     const base = probeBase.value;
@@ -336,7 +443,6 @@ export function useCombat() {
       }
     }
 
-    let timeDecrement = 1;
     let abilityActiveTimer = base.abilityActiveTimer;
     let abilityCooldown = base.abilityCooldown;
     let isImmod = zealotState ? zealotState.isImmobilized : false;
@@ -345,9 +451,7 @@ export function useCombat() {
     if (base.rareType !== 'trainingProbe') {
       if (abilityActiveTimer > 0) {
         abilityActiveTimer -= 1;
-        if (base.ability === 'chrono') {
-          timeDecrement = base.rareType === 'doubleBaser' ? 1.4 : (base.rareType === 'tripleBaser' ? 1.6 : 1.2);
-        } else if (base.ability === 'voidPrism') {
+        if (base.ability === 'voidPrism') {
           isImmod = true;
         }
       } else {
@@ -391,71 +495,16 @@ export function useCombat() {
       zealotState.isImmobilized = isImmod;
     }
 
-    const nextTimeUntilUpgrade = Math.max(0, base.timeUntilUpgrade - timeDecrement);
-
-    if (nextTimeUntilUpgrade > 0) {
-      probeBase.value = {
-        ...base,
-        timeUntilUpgrade: nextTimeUntilUpgrade,
-        abilityActiveTimer,
-        abilityCooldown,
-        novaVolleyTimer,
-        overdriveLevel,
-        wallPhaseInvuln,
-        wallPhaseTimer,
-      };
-      return false;
-    } else {
-      if (zealotState && base.rareType !== 'trainingProbe') zealotState.isImmobilized = false;
-      // Carry the just-ticked mechanic timers into the level-up rebuild
-      probeBase.value = {
-        ...probeBase.value,
-        novaVolleyTimer,
-        overdriveLevel,
-        wallPhaseInvuln,
-        wallPhaseTimer,
-      };
-      upgradeProbeDefenses();
-      return true;
-    }
-  }
-
-  /** Upgrade probe defense tier or level - driven purely by the global upgrade counter */
-  function upgradeProbeDefenses() {
-    const base = probeBase.value;
-    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
-    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
-    const maxUpgradeTime = ssJourneyTime || calculateUpgradeTime(base.rankIndex, base.wallCycle);
-
-    // Pathers only ever have level 1 walls and no turrets: the trigger just resets the timer and
-    // does NOT advance the counter, so a pather can NEVER level up the wall.
-    if (base.rareType === 'pather') {
-      probeBase.value = {
-        ...base,
-        ssJourneyTime,
-        maxUpgradeTime,
-        timeUntilUpgrade: maxUpgradeTime,
-      };
-      return;
-    }
-
-    const upgradeCount = base.upgradeCount + 1;
-    const wallCycle = Math.floor(upgradeCount / WALL_CYCLE_STEPS);
-    const wall = computeWallFromCount(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
-    const turret = buildTurret(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
-
     probeBase.value = {
       ...base,
-      wall,
-      turret,
-      upgradeCount,
-      wallCycle,
-      ssJourneyTime,
-      maxUpgradeTime,
-      timeUntilUpgrade: maxUpgradeTime,
-      // XRD Reality Drift: fresh revive charges every level-up
-      realityDriftCharges: getTierFlags(ssLv).realityDrift ? REALITY_DRIFT_MAX_CHARGES : undefined,
+      abilityActiveTimer,
+      abilityCooldown,
+      novaVolleyTimer,
+      overdriveLevel,
+      wallPhaseInvuln,
+      wallPhaseTimer,
     };
+    return false;
   }
 
   /** Handle wall or probe destruction upon reaching 0 HP */
@@ -495,20 +544,11 @@ export function useCombat() {
 
     // The global upgrade counter drives wall & turret level, so a fresh probe of the next rank
     // simply derives its defenses from it. Pather triggers never advance the counter, so a pather
-    // can never turn the wall into a higher level.
-    const newProbe = createProbeBase(nextRankIndex, undefined, base.upgradeCount, base.wallCycle, base.shopCycle);
+    // can never turn the wall into a higher level. The economy pools carry over ×1.1 per rank
+    // (a better probe simulates a slightly better economy).
+    const newProbe = createProbeBase(nextRankIndex, undefined, base.upgradeCount, base.wallCycle, base.shopCycle, econCarryOver(base));
     newProbe.probeKills = probeKills;
     newProbe.hasStartedCombat = true;
-
-    // Global defense upgrade countdown continues across probe deaths so wall/turret
-    // upgrades fire regularly from early ranks onwards. SS probes freeze the tier journey time
-    // so each SS level takes exactly as long as reaching that milestone did; it carries over too.
-    newProbe.timeUntilUpgrade = isSsRank(nextRankIndex)
-      ? (newProbe.maxUpgradeTime || base.timeUntilUpgrade)
-      : Math.max(1, base.timeUntilUpgrade);
-    newProbe.maxUpgradeTime = Math.max(1, isSsRank(nextRankIndex)
-      ? (newProbe.maxUpgradeTime || base.maxUpgradeTime || getSsJourneyTimeForLevel(ssLevel(nextRankIndex)))
-      : (base.maxUpgradeTime || 45));
 
     probeBase.value = newProbe;
     isEngagedInCombat.value = false;
@@ -610,18 +650,12 @@ export function useCombat() {
     const isPather = base.rareType === 'pather';
     const wall = isPather ? base.wall : computeWallFromCount(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
     const turret = isPather ? base.turret : buildTurret(upgradeCount, base.rareType, base.isClanned, base.rankIndex);
-    const ssLv = isSsRank(base.rankIndex) ? ssLevel(base.rankIndex) : 0;
-    const ssJourneyTime = ssLv > 0 ? getSsJourneyTimeForLevel(ssLv) : undefined;
-    const maxUpgradeTime = ssJourneyTime || calculateUpgradeTime(base.rankIndex, wallCycle);
     probeBase.value = {
       ...base,
       upgradeCount,
       wallCycle,
       wall,
       turret,
-      ssJourneyTime,
-      maxUpgradeTime,
-      timeUntilUpgrade: maxUpgradeTime,
     };
     return wallCycle;
   }
@@ -630,7 +664,7 @@ export function useCombat() {
   function rerollIfPather() {
     const base = probeBase.value;
     if (base.rareType === 'pather') {
-      probeBase.value = createProbeBase(base.rankIndex, undefined, base.upgradeCount, base.wallCycle, base.shopCycle);
+      probeBase.value = createProbeBase(base.rankIndex, undefined, base.upgradeCount, base.wallCycle, base.shopCycle, currentEco(base));
       probeBase.value.hasStartedCombat = true;
     }
   }
@@ -646,9 +680,14 @@ export function useCombat() {
   return {
     probeBase,
     isEngagedInCombat,
+    isWallUnderThreat,
     totalTurretDps,
     autoRepairWall,
     tickProbeUpgrades,
+    tickProbeEconomy,
+    nextWallCost: probeEco.nextWallCost,
+    nextGeneratorUpgradeAvailable: probeEco.nextGeneratorUpgradeAvailable,
+    nextGeneratorCost: probeEco.nextGeneratorCost,
     damageWall,
     stopCombat,
     loadCombatState,

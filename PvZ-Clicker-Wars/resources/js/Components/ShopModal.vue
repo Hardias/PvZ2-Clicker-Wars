@@ -261,5 +261,3 @@ function handleBuy(item: Item) {
   </div>
 </template>
 
-<style scoped>
-</style>

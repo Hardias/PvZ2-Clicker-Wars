@@ -25,14 +25,15 @@ export function toNum(value: BigNum | number): number {
 
 /** Deserialize a possibly-missing/string/number field into a Decimal. */
 export function desBig(value: unknown, fallback: BigSource = 0): BigNum {
-  if (typeof value === 'number') return new Decimal(value);
-  if (typeof value === 'string') {
-    try {
-      return new Decimal(value);
-    } catch {
-      return new Decimal(fallback);
-    }
+  let result: Decimal;
+  if (typeof value === 'number') {
+    result = new Decimal(value);
+  } else if (typeof value === 'string') {
+    result = new Decimal(value);
+  } else if (value instanceof Decimal) {
+    result = new Decimal(value);
+  } else {
+    result = new Decimal(fallback);
   }
-  if (value instanceof Decimal) return new Decimal(value);
-  return new Decimal(fallback);
+  return result.isNan() ? new Decimal(fallback) : result;
 }

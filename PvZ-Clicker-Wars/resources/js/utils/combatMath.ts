@@ -1,10 +1,11 @@
 import Decimal from 'break_eternity.js';
 import { ProbeBase, Wall, WallTier, TurretInfo, RareProbeType } from '../types/ProbeBase';
 import { BigNum, big, desBig } from './bigNumber';
-import { isSsRank, ssLevel, TierId, getRankTier } from './ranks';
+import { isSsRank, ssLevel, getRankTier } from './ranks';
+import { DISABLE_PATHER_KEY } from './keys';
+import { turretDpsForLevel, TURRET_MAX_LEVEL } from './economyMath';
 import {
   WALL_CYCLE_STEPS,
-  WALL_FINAL_GROWTH_PER_CYCLE,
   CYCLE_STEP_MULTIPLIERS,
   CYCLE_STEP_DEFENSE,
   CYCLE_STEP_TIERS,
@@ -15,7 +16,6 @@ import {
   SS_TURRET_POWER_PER_LEVEL,
   SS_TURRET_COUNT_PER_LEVEL,
   getTierFlags,
-  getTierConfig,
   PHASE_WALL_INTERVAL,
   REALITY_DRIFT_MAX_CHARGES,
 } from './scaling';
@@ -23,34 +23,16 @@ import {
 // Pure combat/re-roll math extracted from useCombat. These functions have no
 // reactive state and are safe to reuse or unit-test in isolation.
 
-/** Calculate turret info (count, level, attack power) - turret damage halved to 20 base at level 1 */
+/** Calculate turret info (count, level, attack power) from the dictated T8e table
+ *  (t13 = 524270 dmg/0.2s; the displayed DPS is ×5, the volley itself is handled in useGameLoop). */
 export function getTurretInfo(level: number, isGold = false): { count: number; level: number; attackPower: number } {
-  const basePower = Math.floor((40.0 * Math.pow(1.35, level - 1)) * 0.5); // Halved from 40 to 20 base at level 1
   const count = isGold ? 16 : 8; // Gold baser has double turrets (16)
-  const attackPower = basePower * (isGold ? 2 : 1);
+  const attackPower = turretDpsForLevel(level) * (isGold ? 2 : 1);
   return {
     count,
     level,
     attackPower,
   };
-}
-
-/** Calculate defense upgrade countdown duration based on rank and wall cycle */
-export function calculateUpgradeTime(rankIndex: number, wallCycle = 0): number {
-  const base = 45;
-  const rankSpeedBonus = Math.pow(0.95, rankIndex); // 5% faster per rank index
-  const cycleSpeedBonus = Math.pow(0.9, wallCycle); // 10% faster per completed wall cycle
-  return Math.max(10, Math.floor(base * rankSpeedBonus * cycleSpeedBonus)); // Hard cap: an upgrade lasts at least 10s
-}
-
-/** Frozen upgrade-timer for a given milestone tier (the longer journey manifests as tougher tiers). */
-export function computeTierJourneyTime(tier: TierId): number {
-  return getTierConfig(tier).timerSeconds;
-}
-
-/** Upgrade-timer for a specific SS level based on its tier (SS=2640s, SSS=3600s, X=4500s, XD=5400s, XRD=6300s, XRFD=7200s). */
-export function getSsJourneyTimeForLevel(ssLevelNum: number): number {
-  return computeTierJourneyTime(getRankTier(ssLevelNum));
 }
 
 /** Determine probe ability (Chrono or Void Prism) */
@@ -70,7 +52,7 @@ export function generateRareProbe(rankIndex: number, clanList: string[]): { isRa
 
   if (!isRare) return { isRare: false, rareType: null, isClanned, clanName };
 
-  const disablePatherActive = localStorage.getItem('pvz2_disable_pather') === 'true';
+  const disablePatherActive = localStorage.getItem(DISABLE_PATHER_KEY) === 'true';
 
   let rareType: RareProbeType;
   let attempts = 0;
@@ -151,17 +133,17 @@ export function computeWallFromCount(count: number, rareType: RareProbeType, isC
 }
 
 /**
- * Turret level is derived from the global upgrade counter (level = count + 1), with rare/clan modifiers.
- * The per-level ramp (20 * 1.35^(level-1)) is kept, but the total is multiplied by the same
- * WALL_FINAL_GROWTH_PER_CYCLE factor that walls and shop items use per completed wall cycle
- * (as a Decimal, so turret DPS never overflows to Infinity even at XRFD). */
+ * Turret level follows the wall position 1:1 (level = pos + 1) but caps at 13 — positions 12..17
+ * (Mega4..Final) keep a t13 turret. Damage comes from the dictated T8e table, multiplied by
+ * rare/gold (×1.5), triple (×2), clan (×3) and SS bonuses. The per-cycle ×4671 growth is
+ * DEACTIVATED for turrets (T8e) — it stays in code for walls/shop and is a future rework (tasks.md 🔭).
+ */
 export function buildTurret(count: number, rareType: RareProbeType, isClanned: boolean, rankIndex = 0): TurretInfo {
   const isGold = rareType === 'goldBaser';
-  const wallCycle = Math.floor(count / WALL_CYCLE_STEPS);
-  const level = (count % WALL_CYCLE_STEPS) + 1;
-  const cycleMultiplier = Decimal.pow(WALL_FINAL_GROWTH_PER_CYCLE, wallCycle);
+  const pos = count >= 0 ? count % WALL_CYCLE_STEPS : 0;
+  const level = Math.min(pos + 1, TURRET_MAX_LEVEL);
   const base = getTurretInfo(level, isGold);
-  let attackPower: BigNum = big(base.attackPower).mul(cycleMultiplier);
+  let attackPower: BigNum = big(base.attackPower);
   if (rareType === 'doubleBaser' || rareType === 'goldBaser') {
     attackPower = attackPower.mul(1.5);
   } else if (rareType === 'tripleBaser') {
@@ -195,7 +177,26 @@ export interface SavedProbeData {
   isRare?: boolean;
   isClanned?: boolean;
   clanName?: string;
-  timeUntilUpgrade?: number;
+  // T8 probe economy
+  vespene?: number;
+  minerals?: number;
+  generatorLevel?: number;
+  mineralPrice?: number;
+  marketState?: string;
+  marketTimer?: number;
+  undergroundMarketBuilt?: boolean;
+  // T8b depot + miners
+  depotState?: string;
+  depotTimer?: number;
+  minerTrainingType?: string;
+  minerTrainingTimer?: number;
+  mineralAccum?: number;
+  minerCounts?: Record<string, number>;
+  // T8c automated mines + repository
+  mineCounts?: Record<string, number>;
+  mineBuildLevel?: number;
+  mineBuildTimer?: number;
+  repositories?: number;
   ability?: ProbeBase['ability'];
   abilityCooldown?: number;
   hasStartedCombat?: boolean;
@@ -228,7 +229,33 @@ export function coerceSavedProbe(raw: unknown): SavedProbeData {
     isRare: typeof pb.isRare === 'boolean' ? (pb.isRare as boolean) : undefined,
     isClanned: typeof pb.isClanned === 'boolean' ? (pb.isClanned as boolean) : undefined,
     clanName: typeof pb.clanName === 'string' ? (pb.clanName as string) : undefined,
-    timeUntilUpgrade: typeof pb.timeUntilUpgrade === 'number' ? (pb.timeUntilUpgrade as number) : undefined,
+    vespene: typeof pb.vespene === 'number' ? (pb.vespene as number) : undefined,
+    minerals: typeof pb.minerals === 'number' ? (pb.minerals as number) : undefined,
+    generatorLevel: typeof pb.generatorLevel === 'number' ? (pb.generatorLevel as number) : undefined,
+    mineralPrice: typeof pb.mineralPrice === 'number' ? (pb.mineralPrice as number) : undefined,
+    marketState: typeof pb.marketState === 'string' ? (pb.marketState as string) : undefined,
+    marketTimer: typeof pb.marketTimer === 'number' ? (pb.marketTimer as number) : undefined,
+    undergroundMarketBuilt: typeof pb.undergroundMarketBuilt === 'boolean' ? (pb.undergroundMarketBuilt as boolean) : undefined,
+    depotState: typeof pb.depotState === 'string' ? (pb.depotState as string) : undefined,
+    depotTimer: typeof pb.depotTimer === 'number' ? (pb.depotTimer as number) : undefined,
+    minerTrainingType: typeof pb.minerTrainingType === 'string' ? (pb.minerTrainingType as string) : undefined,
+    minerTrainingTimer: typeof pb.minerTrainingTimer === 'number' ? (pb.minerTrainingTimer as number) : undefined,
+    mineralAccum: typeof pb.mineralAccum === 'number' ? (pb.mineralAccum as number) : undefined,
+    minerCounts:
+      pb.minerCounts && typeof pb.minerCounts === 'object'
+        ? Object.fromEntries(
+            Object.entries(pb.minerCounts as Record<string, unknown>).filter(([, v]) => typeof v === 'number'),
+          ) as Record<string, number>
+        : undefined,
+    mineCounts:
+      pb.mineCounts && typeof pb.mineCounts === 'object'
+        ? Object.fromEntries(
+            Object.entries(pb.mineCounts as Record<string, unknown>).filter(([, v]) => typeof v === 'number'),
+          ) as Record<string, number>
+        : undefined,
+    mineBuildLevel: typeof pb.mineBuildLevel === 'number' ? (pb.mineBuildLevel as number) : undefined,
+    mineBuildTimer: typeof pb.mineBuildTimer === 'number' ? (pb.mineBuildTimer as number) : undefined,
+    repositories: typeof pb.repositories === 'number' ? (pb.repositories as number) : undefined,
     ability: (pb.ability as ProbeBase['ability']) || undefined,
     abilityCooldown: typeof pb.abilityCooldown === 'number' ? (pb.abilityCooldown as number) : undefined,
     hasStartedCombat: typeof pb.hasStartedCombat === 'boolean' ? (pb.hasStartedCombat as boolean) : undefined,

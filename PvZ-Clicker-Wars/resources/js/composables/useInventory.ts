@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { Item, InventorySlot, ItemStats } from '../types/Item';
 import { big, desBig, BigNum } from '../utils/bigNumber';
+import { SAVE_SLOT_KEY, AUTOSAVE_KEY, LEGACY_INVENTORY_KEY } from '../utils/keys';
 
 /**
  * Composable managing Zealot 6-slot inventory, item equipping, unequipping, and combined equipment stats.
@@ -44,7 +45,7 @@ export function useInventory() {
   /** Load initial 6 equipment slots from storage or empty slots */
   function loadInitialSlots(): InventorySlot[] {
     try {
-      const raw = localStorage.getItem('pvz2_slot_A') || localStorage.getItem('pvz2_slot_B') || localStorage.getItem('pvz2_slot_C') || localStorage.getItem('pvz2_autosave') || localStorage.getItem('pvz2_inventory');
+      const raw = localStorage.getItem(`${SAVE_SLOT_KEY}A`) || localStorage.getItem(`${SAVE_SLOT_KEY}B`) || localStorage.getItem(`${SAVE_SLOT_KEY}C`) || localStorage.getItem(AUTOSAVE_KEY) || localStorage.getItem(LEGACY_INVENTORY_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         const savedSlots = (parsed.inventory || parsed) as Array<Record<string, unknown>>;

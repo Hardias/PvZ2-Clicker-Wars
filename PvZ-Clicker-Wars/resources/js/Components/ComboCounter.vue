@@ -30,5 +30,3 @@ const progress = computed(() =>
   </div>
 </template>
 
-<style scoped>
-</style>

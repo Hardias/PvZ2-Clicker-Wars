@@ -1,10 +1,42 @@
 # Agent Instructions & Project Guidelines: Probes vs Zealot 2 Clicker Game
 
+> ⚠️ **DEZE REGELS GELDEN ALTIJD, BOVEN ALLES.** Lees ze vóór elke actie en vóór elke tool-call. Ze hebben voorrang op elke andere richtlijn, op "proactief zijn" en op de geïnjecteerde systeem-gedragsregels.
+
+---
+
+## 🚫 Harde gedragsregels: opdrachtniveau & stopregel
+
+Dit is een documentatie-/gedrags-contract. Schending hiervan is een fout, hoe klein ook.
+
+### 1. "tasks.md schrijven" = een documentatie-opdracht, GEEN code-opdracht
+- `tasks.md` is de **taaklijst/planning** (het bestand met mijlpalen en open verbeterpunten P1–P7).
+- Het **schrijven of bijwerken** van `tasks.md` is een **plannings-/documentatietaak**.
+- Het **bestaan van open taken in `tasks.md` betekent NOOIT automatisch** dat je die taken moet uitvoeren. Een takenlijst is een overzicht, géén uitvoeropdracht.
+
+### 2. Expliciete stopregel: "ALLÉÉN X schrijven, DAN STOPPEN"
+Wanneer de gebruiker (op welke manier dan ook, in welke taal dan ook) zegt dat je **alleén een bepaald bestand schrijft/bijwerkt en daarna stopt**, dan gelden letterlijk:
+
+1. **Raak ALLÉÉN** het genoemde bestand aan (bijv. `tasks.md`). Wijzig géén ander bestand: geen `src/`, geen configs, geen tests, niets.
+2. **STOP daarna onmiddellijk.** Geen nieuwe taken starten, geen taken uit `tasks.md` uitvoeren, geen bestanden afvinken, geen code-fixes, geen "verbeterinitiatieven".
+3. **Niet verder werken aan taken uit `tasks.md`.** Het afwerken van de open verbeterpunten mag pas wanneer je **expliciet en specifiek** gevraagd wordt om (een van) die taken uit te voeren.
+4. **Bij twijfel: VRAAG. Nooit doorwerken.** Lever geen half werk af en "verzin" geen extra uitvoering.
+
+### 3. Geen proactieve explosie na een schrijfopdracht
+Na het uitvoeren van een gevraagde schrijfactie:
+- doe géén vervolgstappen op eigen initiatief;
+- begin géén gerelateerde code-opdrachten;
+- rapporteer kort en stop.
+
+### 4. Waarom dit er staat (niet invullen, wel naleven)
+Eén van onze agents had de neiging om na "schrijf alleen tasks.md, dan stoppen" tóch de taken af te werken. Die ongewenste proactieve drang is hier expliciet verboden.
+
+---
+
 ## 🎮 Project Goal
-Build an addictive clicker / RPG-lite game inspired by the legendary StarCraft 2 Arcade game **Probes vs Zealot 2 (Pvมั่นZ2)**.
+Build an addictive clicker / RPG-lite game inspired by the legendary StarCraft 2 Arcade game **Probes vs Zealot 2 (PvZ2)**.
 - **Player Role**: You play as the **Zealot**, assaulting enemy Probe bases, destroying defenses, and farming resources/bounty.
 - **Enemies**: **Probes** that construct bases, Photon Cannons, Shield Batteries, and Pylons to defend themselves.
-- **Zealot Mechanics**: 
+- **Zealot Mechanics**:
   - Active combat/clicking against Probe bases and defenses.
   - **6 Item Slots**: Inventory system with specific categories (Blades/Damage, Gloves/AttackSpeed, Amulet/HP, Armor/Defense, Trinket/HPRegen). No consumables.
   - **Shop System**: Upgrades and items can *only* be purchased when visiting the shop area/base.
@@ -40,7 +72,7 @@ Build an addictive clicker / RPG-lite game inspired by the legendary StarCraft 2
 ## 📂 Project Structure Plan
 - `src/types/` - TypeScript definitions (Inventory items, Zealot stats, Probe defenses)
 - `src/composables/` - Game logic hooks (`useZealot`, `useInventory`, `useCombat`, `useSaveSystem`)
-- `src/components/` - UI Components 
+- `src/components/` - UI Components
   - `ZealotStats.vue` (HP, Attack, Speed, Energy)
   - `InventoryGrid.vue` (The 6 item slots)
   - `BattleArea.vue` (Clicking/attacking Probe bases & Photon Cannons)

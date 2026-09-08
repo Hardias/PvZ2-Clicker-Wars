@@ -3,132 +3,150 @@ import {
   SkillNode,
   SkillTreeState,
   SkillBonuses,
-  SkillBranch,
   SKILL_NODES,
-  DEFAULT_SKILL_BONUSES,
+  xpForNextLevel,
+  investedPoints,
+  canInvestNode,
+  computeBonuses,
 } from '../types/SkillTree';
 
 /**
- * Composable managing the passive skill tree: 3 branches x 7 nodes.
- * Players earn Zealot XP through kills and spend it to unlock permanent upgrades.
+ * Composable managing the passive talent tree: 3 branches x 7 rows.
+ * Zealots earn XP, level up (1 talent point per level) and spend talent
+ * points on rankable talents (1 point per rank, up to maxPoints).
  */
 
 /** Fresh skill tree state (single source of truth for a brand-new tree). */
 export function createDefaultSkillTreeState(): SkillTreeState {
   return {
-    unlockedNodes: [],
+    level: 1,
     xp: 0,
-    spentXp: 0,
+    talentPoints: 0,
+    ranks: {},
   };
 }
 
 export function useSkillTree() {
   const state = ref<SkillTreeState>(createDefaultSkillTreeState());
 
-  const availableXp = computed(() => state.value.xp - state.value.spentXp);
-  const totalXp = computed(() => state.value.xp);
+  const level = computed(() => state.value.level);
+  const talentPoints = computed(() => state.value.talentPoints);
+  const xpIntoLevel = computed(() => state.value.xp);
+  const xpForNext = computed(() => xpForNextLevel(state.value.level));
+  const ranks = computed<Record<string, number>>(() => state.value.ranks);
 
-  /** Check if a specific node is unlocked */
-  function isNodeUnlocked(nodeId: string): boolean {
-    return state.value.unlockedNodes.includes(nodeId);
-  }
+  const spentPoints = computed(() =>
+    SKILL_NODES.reduce((sum, n) => sum + investedPoints(state.value.ranks, n.id), 0),
+  );
 
-  /** Check if a node can be unlocked (prerequisites met + enough XP) */
-  function canUnlockNode(node: SkillNode): boolean {
-    if (isNodeUnlocked(node.id)) return false;
-    if (node.requiresPrevious) {
-      const prevRow = node.row - 1;
-      const prevInBranch = SKILL_NODES.find(
-        n => n.branch === node.branch && n.row === prevRow
-      );
-      if (prevInBranch && !isNodeUnlocked(prevInBranch.id)) return false;
+  /** XP earned in total (through previous levels + current progress). */
+  const totalXpEarned = computed(() => {
+    let total = state.value.xp;
+    for (let lvl = 1; lvl < state.value.level; lvl++) {
+      total += xpForNextLevel(lvl);
     }
-    return availableXp.value >= node.cost;
+    return total;
+  });
+
+  /** Check how many points are invested in a specific node. */
+  function getRank(nodeId: string): number {
+    return investedPoints(state.value.ranks, nodeId);
   }
 
-  /** Unlock a skill node */
-  function unlockNode(nodeId: string): boolean {
+  /** Check if a node can currently accept another talent point. */
+  function canInvest(node: SkillNode): boolean {
+    return canInvestNode(node, state.value.ranks, state.value.talentPoints);
+  }
+
+  /** Invest 1 talent point into a node. */
+  function investPoint(nodeId: string): boolean {
     const node = SKILL_NODES.find(n => n.id === nodeId);
-    if (!node || !canUnlockNode(node)) return false;
-    state.value.unlockedNodes.push(nodeId);
-    state.value.spentXp += node.cost;
+    if (!node || !canInvestNode(node, state.value.ranks, state.value.talentPoints)) return false;
+    state.value.ranks[nodeId] = (state.value.ranks[nodeId] || 0) + 1;
+    state.value.talentPoints -= 1;
     return true;
   }
 
-  /** Grant XP to the zealot */
+  /** Grant XP to the zealot; rolls level-ups and awards 1 talent point per level. */
   function grantXp(amount: number) {
-    state.value.xp += Math.max(0, Math.floor(amount));
+    const earned = Math.max(0, Math.floor(amount));
+    if (earned === 0) return;
+    state.value.xp += earned;
+    while (state.value.xp >= xpForNextLevel(state.value.level)) {
+      state.value.xp -= xpForNextLevel(state.value.level);
+      state.value.level += 1;
+      state.value.talentPoints += 1;
+    }
   }
 
-  /** Compute all bonuses from unlocked nodes */
-  const bonuses = computed<SkillBonuses>(() => {
-    const b = { ...DEFAULT_SKILL_BONUSES };
-    const unlocked = state.value.unlockedNodes;
+  /** Compute all bonuses from invested ranks. */
+  const bonuses = computed<SkillBonuses>(() => computeBonuses(state.value.ranks));
 
-    // Vengeance
-    if (unlocked.includes('v1')) b.damageMultiplier *= 1.15;
-    if (unlocked.includes('v2')) b.attackSpeedMultiplier *= 1.10;
-    if (unlocked.includes('v3')) { b.critChance += 0.08; b.critMultiplier = 2.0; }
-    if (unlocked.includes('v4')) b.damageMultiplier *= 1.25;
-    if (unlocked.includes('v5')) b.critChance += 0.12;
-    if (unlocked.includes('v6')) b.comboMaxBonus += 25;
-    if (unlocked.includes('v7')) { b.critMultiplier = 3.0; b.damageMultiplier *= 1.40; }
-
-    // Resilience
-    if (unlocked.includes('r1')) b.maxHpMultiplier *= 1.40;
-    if (unlocked.includes('r2')) b.hpRegenPercent += 0.02;
-    if (unlocked.includes('r3')) b.turretDamageReduction += 0.15;
-    if (unlocked.includes('r4')) b.extraTeleports += 1;
-    if (unlocked.includes('r5')) { b.maxHpMultiplier *= 1.30; b.turretDamageReduction += 0.10; }
-    if (unlocked.includes('r6')) b.thornsReflect += 0.25;
-    if (unlocked.includes('r7')) b.undyingEnabled = true;
-
-    // Wealth (Vespene Titans)
-    if (unlocked.includes('w1')) b.vespeneConversionMultiplier *= 2.0;
-    if (unlocked.includes('w2')) b.killBountyPercent += 0.03;
-    if (unlocked.includes('w3')) b.autoVespenePercent += 0.05;
-    if (unlocked.includes('w4')) b.vespeneBountyPercent += 0.03;
-    if (unlocked.includes('w5')) b.shopPriceReduction += 0.25;
-    if (unlocked.includes('w6')) b.vespeneItemDiscount += 0.30;
-    if (unlocked.includes('w7')) { b.vespeneConversionMultiplier *= 2.0; b.killBountyPercent += 0.06; }
-
-    return b;
-  });
-
-  /** Deserialize and restore saved state */
-  function deserialize(saved: SkillTreeState) {
-    state.value = {
-      unlockedNodes: Array.isArray(saved?.unlockedNodes) ? [...saved.unlockedNodes] : [],
-      xp: typeof saved?.xp === 'number' ? saved.xp : 0,
-      spentXp: typeof saved?.spentXp === 'number' ? saved.spentXp : 0,
-    };
+  /** Deserialize and restore a saved state. Old/malformed saves fall back to a clean level-1 state. */
+  function deserialize(saved: unknown) {
+    const s = (saved ?? {}) as Record<string, unknown>;
+    if (
+      s &&
+      typeof s === 'object' &&
+      typeof s.ranks === 'object' &&
+      s.ranks !== null &&
+      typeof s.level === 'number' &&
+      typeof s.xp === 'number' &&
+      typeof s.talentPoints === 'number'
+    ) {
+      const ranksParsed: Record<string, number> = {};
+      for (const [id, val] of Object.entries(s.ranks as Record<string, unknown>)) {
+        const node = SKILL_NODES.find(n => n.id === id);
+        if (node && typeof val === 'number' && Number.isFinite(val)) {
+          ranksParsed[id] = Math.min(node.maxPoints, Math.max(0, Math.floor(val)));
+        }
+      }
+      state.value = {
+        level: Math.max(1, Math.min(1_000_000, Math.floor(s.level))),
+        xp: Math.max(0, Math.floor(s.xp)),
+        talentPoints: Math.max(0, Math.floor(s.talentPoints)),
+        ranks: ranksParsed,
+      };
+    } else {
+      state.value = createDefaultSkillTreeState();
+    }
   }
 
-  /** Reset the skill tree to a fresh state (all XP and unlocks removed) */
+  /** Reset the talent tree to a fresh state (level 1, no points, no ranks). */
   function reset() {
     state.value = createDefaultSkillTreeState();
   }
 
-  /** Get XP required for next unlock in a branch */
-  function getNextCost(branch: SkillBranch): number | null {
-    const branchNodes = SKILL_NODES.filter(n => n.branch === branch);
-    for (const node of branchNodes) {
-      if (!isNodeUnlocked(node.id)) return node.cost;
-    }
-    return null;
+  /**
+   * TIJDELIJK (evaluate before final build): refund every invested point back into the
+   * point pool and clear all ranks. Level and XP stay untouched — lets a player switch
+   * exclusive (of/of) choices. May need cost/cooldown limits or a permanent-lock later.
+   */
+  function respec() {
+    const refund = spentPoints.value;
+    state.value = {
+      ...state.value,
+      talentPoints: state.value.talentPoints + refund,
+      ranks: {},
+    };
   }
 
   return {
     state,
-    availableXp,
-    totalXp,
+    level,
+    talentPoints,
+    xpIntoLevel,
+    xpForNext,
+    ranks,
+    spentPoints,
+    totalXpEarned,
     bonuses,
-    isNodeUnlocked,
-    canUnlockNode,
-    unlockNode,
+    getRank,
+    canInvest,
+    investPoint,
     grantXp,
-    getNextCost,
     deserialize,
     reset,
+    respec,
   };
 }

@@ -3,6 +3,7 @@ import { ZealotStats } from '../types/Zealot';
 import { InventorySlot } from '../types/Item';
 import { ProbeBase } from '../types/ProbeBase';
 import { SkillTreeState } from '../types/SkillTree';
+import { SAVE_SLOT_KEY, AUTOSAVE_KEY, ZEALOT_DEATHS_KEY } from '../utils/keys';
 
 export interface SaveData {
   zealot: ZealotStats;
@@ -44,7 +45,7 @@ export function useSaveSystem(
 
   /** Get localStorage key for a specific slot */
   function getSlotKey(slot: 'A' | 'B' | 'C' | 'autosave'): string {
-    return `pvz2_slot_${slot}`;
+    return slot === 'autosave' ? AUTOSAVE_KEY : `${SAVE_SLOT_KEY}${slot}`;
   }
 
   /** Save game state to a specific manual slot (A, B, or C) */
@@ -52,7 +53,7 @@ export function useSaveSystem(
     try {
       const data: SaveData = buildSaveData();
       localStorage.setItem(getSlotKey(slot), JSON.stringify(data));
-      localStorage.setItem('pvz2_zealot_deaths', String(zealotState.value.deaths || 0));
+      localStorage.setItem(ZEALOT_DEATHS_KEY, String(zealotState.value.deaths || 0));
       saveTrigger.value++;
     } catch (e) {
       console.error(`Failed to save game to Slot ${slot}:`, e);
@@ -64,7 +65,7 @@ export function useSaveSystem(
     try {
       const data: SaveData = buildSaveData();
       localStorage.setItem(getSlotKey('autosave'), JSON.stringify(data));
-      localStorage.setItem('pvz2_zealot_deaths', String(zealotState.value.deaths || 0));
+      localStorage.setItem(ZEALOT_DEATHS_KEY, String(zealotState.value.deaths || 0));
       saveTrigger.value++;
     } catch (e) {
       console.error('Failed to auto-save game:', e);

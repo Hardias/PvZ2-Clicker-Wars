@@ -16,9 +16,10 @@ interface Props {
   currentTrackName: string;
   currentTrackEmoji: string;
   trackPack: 'big_pickle' | 'gemini';
+  talentPoints?: number;
 }
 
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<{
   (e: 'save'): void;
   (e: 'load'): void;
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   (e: 'setTrackPack', pack: 'big_pickle' | 'gemini'): void;
   (e: 'toggleVisualizer'): void;
   (e: 'openTutorial'): void;
+  (e: 'openSkillTree'): void;
 }>();
 
 const showAudioPanel = ref(false);
@@ -236,6 +238,17 @@ function closeFor(action: 'save' | 'load' | 'reset' | 'tutorial') {
           <span class="w-2.5 h-2.5 rounded-full" :class="autosaveEnabled ? 'bg-green-400 shadow-[0_0_10px_#4ade80] animate-ping' : 'bg-gray-500'"></span>
           <span>AUTO-SAVE: {{ autosaveEnabled ? 'ON' : 'OFF' }}</span>
         </button>
+
+        <!-- Talent point badge (top-right) -->
+        <button
+          v-if="(props.talentPoints ?? 0) > 0"
+          @click="emit('openSkillTree')"
+          class="relative bg-amber-500 hover:bg-amber-400 text-black font-black px-2.5 py-1 rounded-full border border-amber-200 shadow-lg shadow-amber-500/40 transition-all flex items-center space-x-1.5 skill-point-pulse"
+          :title="`${props.talentPoints ?? 0} talent point${(props.talentPoints ?? 0) === 1 ? '' : 's'} available — open talent tree`"
+        >
+          <span class="w-2 h-2 rounded-full bg-black/70"></span>
+          <span class="text-xs">✦ {{ props.talentPoints ?? 0 }}</span>
+        </button>
       </div>
     </div>
 
@@ -428,5 +441,18 @@ input[type="range"]:disabled::-moz-range-thumb {
   background: #4b5563;
   border-color: #374151;
   box-shadow: none;
+}
+
+.skill-point-pulse {
+  animation: skill-pt-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes skill-pt-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.0);
+  }
+  50% {
+    box-shadow: 0 0 14px 2px rgba(245, 158, 11, 0.55);
+  }
 }
 </style>

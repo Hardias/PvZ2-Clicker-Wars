@@ -8,7 +8,6 @@ import { BigNum, big } from '../utils/bigNumber';
 
 interface Props {
   zealot: ZealotStats;
-  maxHp: BigNum;
   attackPower: BigNum;
   attackSpeed: number;
   currentDps: BigNum;
@@ -40,12 +39,6 @@ const hasSkillBonuses = computed(() => {
     || b.shopPriceReduction > 0
     || b.vespeneItemDiscount > 0
     || b.comboMaxBonus > 0;
-});
-
-const hpPercentage = computed(() => {
-  if (big(props.maxHp).lte(0)) return 0;
-  const pct = big(props.zealot.hp).div(props.maxHp).mul(100);
-  return Math.min(100, Math.max(0, pct.toNumber()));
 });
 
 function formatDefenseReduction(reduction: number): string {
@@ -83,7 +76,7 @@ function formatCritChance(chance: number): string {
 <template>
   <div class="bg-gray-900 border border-cyan-500/40 rounded-lg p-4 text-cyan-100 shadow-lg shadow-cyan-950/50">
     <div class="flex justify-between items-center mb-3 border-b border-cyan-800/50 pb-2">
-      <h2 class="text-lg font-bold tracking-wider text-cyan-400">ZEALOT WARRIOR</h2>
+      <h2 class="text-lg font-bold tracking-wider text-cyan-400">ZEALOT</h2>
       <div class="flex space-x-2 text-xs">
         <div class="bg-cyan-950 px-2 py-1 rounded border border-cyan-600/40 text-cyan-300">
           Teleports: <span class="font-bold text-amber-400">{{ zealot.emergencyTeleports ?? 2 }}/2</span>
@@ -91,17 +84,6 @@ function formatCritChance(chance: number): string {
         <div class="bg-red-950 px-2 py-1 rounded border border-red-600/40 text-red-300">
           Deaths: <span class="font-bold text-red-400">{{ zealot.deaths ?? 0 }}</span>
         </div>
-      </div>
-    </div>
-
-    <!-- HP Bar -->
-    <div class="mb-4">
-      <div class="flex justify-between text-xs mb-1">
-        <span>HP</span>
-        <span class="font-mono">{{ formatNumber(zealot.hp) }} / {{ formatNumber(maxHp) }}</span>
-      </div>
-      <div class="w-full bg-gray-800 h-3 rounded-full overflow-hidden border border-cyan-700/30">
-        <div class="bg-gradient-to-r from-cyan-600 to-cyan-400 h-full transition-all duration-300" :style="{ width: `${hpPercentage}%` }"></div>
       </div>
     </div>
 
@@ -229,5 +211,3 @@ function formatCritChance(chance: number): string {
   </div>
 </template>
 
-<style scoped>
-</style>
